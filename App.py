@@ -9,7 +9,7 @@ from fpdf import FPDF
 # --- 1. MANDATORY TOP-LEVEL CONFIG ---
 st.set_page_config(
     page_title="ScholarAI", 
-    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=7", 
+    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=8", 
     layout="wide"
 )
 
@@ -20,8 +20,8 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-title" content="ScholarAI">
-        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=7">
-        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=7">
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=8">
+        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=8">
     </head>
     """,
     unsafe_allow_html=True
@@ -77,6 +77,7 @@ def create_pdf_bytes(text):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
+    # Filter out characters that FPDF cannot handle
     clean_text = text.encode('latin-1', 'replace').decode('latin-1')
     pdf.multi_cell(0, 10, txt=clean_text)
     return bytes(pdf.output())
@@ -96,12 +97,13 @@ with st.sidebar:
     
     st.success("API Key Active")
     model_choice = st.radio("Intelligence Level", ["Gemini 3 Flash (Fast)", "Gemini 3 Pro (Deep)"])
+    # Stability: Using specific version IDs
     MODEL_ID = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro" 
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
     
-    thinking_level = st.select_slider("Reasoning Depth", 
-        options=[types.ThinkingLevel.MINIMAL, types.ThinkingLevel.MEDIUM, types.ThinkingLevel.HIGH],
-        value=types.ThinkingLevel.HIGH)
+    # Simple check for reasoning support
+    can_reason = "pro" in MODEL_ID
+    st.info("Reasoning available" if can_reason else "Flash: Standard reasoning")
 
     st.divider()
     if st.button("🧹 Clear Research History"):
@@ -138,7 +140,7 @@ if uploaded_file:
     m1, m2, m3 = st.columns(3)
     m1.metric("Engine", "Gemini 3 Pro" if "pro" in MODEL_ID else "Gemini 3 Flash")
     m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
-    m3.metric("Context", "2M Tokens Ready")
+    m3.metric("Context", "Ready")
     st.divider()
 
     col_viewer, col_tools = st.columns([1, 1], gap="large")
@@ -149,7 +151,6 @@ if uploaded_file:
             st.video(uploaded_file)
         else:
             st.info(f"Loaded: {st.session_state.file_name}")
-            st.write("Full file structure indexed for high-reasoning extraction.")
 
     with col_tools:
         tab1, tab2, tab3 = st.tabs(["💬 Deep Chat", "🧠 AI Study Tools", "📄 Export"])
@@ -168,15 +169,11 @@ if uploaded_file:
                     res_box = st.empty()
                     full_res = ""
                     
-                    # Logic to prevent ClientError on Flash models
-                    gen_config = types.GenerateContentConfig(
-                        thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
-                    ) if "pro" in MODEL_ID else None
-
+                    # ULTIMATE STABILITY FIX: We removed ThinkingConfig here 
+                    # until the 1.5 stable models officially support it in this SDK version
                     for chunk in client.models.generate_content_stream(
                         model=MODEL_ID,
-                        contents=[shared_file_part, user_prompt],
-                        config=gen_config
+                        contents=[shared_file_part, user_prompt]
                     ):
                         full_res += chunk.text
                         res_box.markdown(full_res + "▌")
@@ -186,34 +183,29 @@ if uploaded_file:
         with tab2:
             st.subheader("Automated Study Tools")
             c1, c2 = st.columns(2)
-            btn_config = types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
-            ) if "pro" in MODEL_ID else None
 
             if c1.button("🚀 Instant Study Plan"):
                 with st.spinner("Analyzing..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Create a 10-minute study plan."],
-                        config=btn_config
+                        contents=[shared_file_part, "Based on the attached file, create a 10-minute study plan."]
                     )
                     st.markdown(f"**AI Strategy:**\n{res.text}")
             if c2.button("🔥 Smart Flashcards"):
                 with st.spinner("Extracting..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Create 5 practice flashcards."],
-                        config=btn_config
+                        contents=[shared_file_part, "Based on the attached file, create 5 practice flashcards."]
                     )
                     st.markdown(f"**Practice Set:**\n{res.text}")
 
         with tab3:
             if st.button("✨ Compile PDF Report"):
                 with st.spinner("Writing guide..."):
+                    # This was Line 213 - fixed by removing the config object
                     report = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Generate a comprehensive study report."],
-                        config=btn_config
+                        contents=[shared_file_part, "Generate a comprehensive, deep-dive study report based on this file."]
                     )
                     st.session_state.last_report = report.text
                     st.markdown(st.session_state.last_report)
@@ -221,7 +213,7 @@ if uploaded_file:
                 st.download_button("📥 Download Report", create_pdf_bytes(st.session_state.last_report), "Study_Lab_Report.pdf")
 else:
     st.header("Welcome to the Lab")
-    st.info("Upload a PDF or Video in the sidebar to start your research session.")
+    st.info("Upload a PDF or Video in the sidebar to start.")
 
 
 
