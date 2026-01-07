@@ -52,17 +52,14 @@ inject_dark_academy_css()
 
 # --- 3. AUTH & UTILS ---
 def get_api_key():
-    # Priority 1: Streamlit Secrets (Best for GitHub/Cloud)
     if hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
         return st.secrets["GOOGLE_API_KEY"].strip()
-    # Priority 2: Local Environment
     return os.getenv("GOOGLE_API_KEY")
 
 def create_pdf_bytes(text):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
-    # Filter text for FPDF compatibility
     clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 10, txt=clean_text)
     return bytes(pdf.output())
@@ -73,13 +70,12 @@ api_key = get_api_key()
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
     if not api_key:
-        st.warning("Please add GOOGLE_API_KEY to Secrets.")
+        st.warning("Please add GOOGLE_API_KEY to Streamlit Secrets.")
         st.stop()
     
     st.success("API Key Active")
     model_choice = st.radio("Intelligence Level", ["Gemini 2.0 Flash (Fast)", "Gemini 1.5 Pro (Deep)"])
     MODEL_ID = "gemini-2.0-flash" if "Flash" in model_choice else "gemini-1.5-pro" 
-    
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
     
     st.divider()
@@ -87,24 +83,24 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# Initialize Client
 client = genai.Client(api_key=api_key)
 
 # --- 5. ENGINE & DASHBOARD ---
 if uploaded_file:
-    # STABLE DATA LOADING: Using Bytes to prevent "Redacted ClientError"
+    # THE CRITICAL FIX: Convert file to bytes immediately
+    # This prevents the redacted ClientError by avoiding the File API upload loop
     file_bytes = uploaded_file.read()
     shared_file_part = types.Part.from_bytes(
         data=file_bytes, 
         mime_type=uploaded_file.type
     )
 
-    # Dashboard Header
+    # Dashboard Metrics
     st.title("🎓 Scholar Research Lab")
     m1, m2, m3 = st.columns(3)
     m1.metric("Engine", "Professor Edition")
     m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
-    m3.metric("Context", "Ready (Stateless)")
+    m3.metric("Status", "Stateless / Active")
     st.divider()
 
     col_viewer, col_tools = st.columns([1, 1], gap="large")
@@ -114,11 +110,18 @@ if uploaded_file:
         if "mp4" in uploaded_file.type:
             st.video(uploaded_file)
         else:
-            st.info(f"Indexing complete: {uploaded_file.name}")
-            st.markdown("> **Professor's Note:** Full document context is now active in memory.")
+            st.info(f"Context Active: {uploaded_file.name}")
+            st.markdown("> **Professor's Note:** I have indexed this document. You may now begin the deep-dive analysis.")
 
     with col_tools:
         tab1, tab2, tab3 = st.tabs(["💬 Deep Chat", "🧠 AI Study Tools", "📄 Export"])
+
+        # SYSTEM INSTRUCTION: Defining the persona at the model level
+        professor_system_prompt = (
+            "You are a Senior Research Professor. Your goal is to provide academic, "
+            "rigorous, and deep-dive answers based on the provided file. Always cite "
+            "concepts from the material and maintain a sophisticated, helpful tone."
+        )
 
         with tab1:
             chat_container = st.container(height=450)
@@ -133,55 +136,60 @@ if uploaded_file:
                 chat_container.chat_message("user").write(user_prompt)
                 
                 with chat_container.chat_message("assistant"):
-                    # SYSTEM INSTRUCTION: Hardcoded persona for consistency
-                    sys_instr = "You are a Senior Research Professor. Provide academic, rigorous, and deep-dive answers based strictly on the provided file."
-                    
+                    # Use GenerateContentConfig to pass the System Instruction properly
                     response = client.models.generate_content(
                         model=MODEL_ID,
-                        contents=[shared_file_part, f"{sys_instr}\n\nUser Question: {user_prompt}"]
+                        contents=[shared_file_part, user_prompt],
+                        config=types.GenerateContentConfig(
+                            system_instruction=professor_system_prompt
+                        )
                     )
                     st.markdown(response.text)
                     st.session_state.messages.append({"role": "assistant", "content": response.text})
 
         with tab2:
-            st.subheader("Automated Study Tools")
+            st.subheader("Automated Assistance")
             c1, c2 = st.columns(2)
             
             if c1.button("🚀 Instant Study Plan"):
-                with st.spinner("Analyzing..."):
+                with st.spinner("Professor is drafting plan..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Act as a Professor and create a structured study plan for this."]
+                        contents=[shared_file_part, "Create a structured 10-minute study plan for this."],
+                        config=types.GenerateContentConfig(system_instruction=professor_system_prompt)
                     )
                     st.markdown(f"### Study Strategy\n{res.text}")
 
             if c2.button("🔥 Smart Flashcards"):
-                with st.spinner("Extracting..."):
+                with st.spinner("Extracting concepts..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Generate 5 high-level academic flashcards from this material."]
+                        contents=[shared_file_part, "Create 5 practice flashcards from the core concepts."],
+                        config=types.GenerateContentConfig(system_instruction=professor_system_prompt)
                     )
                     st.markdown(f"### Practice Set\n{res.text}")
 
         with tab3:
             st.subheader("Final Documentation")
             if st.button("✨ Compile Full Research Report"):
-                with st.spinner("Writing deep-dive guide..."):
+                with st.spinner("Writing academic guide..."):
                     report = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Generate a comprehensive, academic research report based on this material."]
+                        contents=[shared_file_part, "Generate a comprehensive academic research report based on this."],
+                        config=types.GenerateContentConfig(system_instruction=professor_system_prompt)
                     )
                     st.session_state.last_report = report.text
                     st.markdown(st.session_state.last_report)
             
             if "last_report" in st.session_state:
                 st.download_button(
-                    "📥 Download Report as PDF", 
+                    "📥 Download Report", 
                     create_pdf_bytes(st.session_state.last_report), 
                     f"ScholarAI_Report.pdf"
                 )
 else:
     st.header("Welcome to the Lab")
-    st.info("Upload a PDF or Video in the sidebar to initialize the AI Scholar Professor.")
+    st.info("Upload a PDF or MP4 file in the sidebar to initialize the Professor persona.")
+
 
 
