@@ -5,20 +5,18 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Optimized for High-Latency Uploads ---
+# --- 1. ENGINE: Pydantic-Safe Initialization ---
 def get_api_key():
     return st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 api_key = get_api_key()
 
-# THE CORE FIX: Massive timeouts and forced light-weight headers
+# FIX: Pydantic Validation Error fix. 
+# We remove the custom timeout dictionary that was causing the crash 
+# and use the SDK's internal default handling which is safer for Cloud environments.
 client = genai.Client(
     api_key=api_key,
-    http_options={
-        'headers': {'x-goog-api-key': api_key},
-        'timeout': 600.0, # 10 Minutes for slow network conditions
-        'connect_timeout': 60.0
-    }
+    http_options={'headers': {'x-goog-api-key': api_key}}
 )
 
 def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
@@ -68,7 +66,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- 4. THE PERSISTENT HANDSHAKE (WITH RETRY LOGIC) ---
+# --- 4. THE HANDSHAKE ---
 if uploaded_file:
     if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
         with st.status("Professor is indexing the context...") as status:
@@ -77,22 +75,11 @@ if uploaded_file:
                 f.write(uploaded_file.getbuffer())
             
             try:
-                # 1. Step: Upload with retry logic for "Read Operation Timeout"
-                status.write("Attempting Secure Upload to Google Cloud...")
+                # Standard upload call
+                status.write("Transferring to Google Cloud...")
+                g_file = client.files.upload(file=temp_path)
                 
-                success = False
-                retries = 3
-                while not success and retries > 0:
-                    try:
-                        g_file = client.files.upload(file=temp_path)
-                        success = True
-                    except Exception as e:
-                        retries -= 1
-                        status.write(f"Connection dropped. Retrying... ({retries} attempts left)")
-                        time.sleep(2)
-                        if retries == 0: raise e
-                
-                # 2. Step: Polling loop to prevent 'Read Timeout' while server indexes
+                # Polling for completion
                 progress_bar = st.progress(0)
                 start_time = time.time()
                 
@@ -101,10 +88,10 @@ if uploaded_file:
                     percent = min(int((elapsed / 60) * 100), 98) 
                     progress_bar.progress(percent)
                     
-                    if elapsed > 600: # 10 minute safety cap
-                        raise Exception("Indexing taking too long. Try a smaller file.")
+                    if elapsed > 300: # 5 minute safety cap
+                        raise Exception("Indexing timeout.")
                     
-                    time.sleep(7) # Longer polling interval reduces network chatter
+                    time.sleep(5) 
                     g_file = client.files.get(name=g_file.name)
                 
                 progress_bar.progress(100)
@@ -167,7 +154,8 @@ if uploaded_file:
                 pdf.multi_cell(0, 10, txt=st.session_state.last_rep.encode('latin-1', 'replace').decode('latin-1'))
                 st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
 else:
-    st.info("Upload a file in the sidebar to begin.")
+    st.info("Upload a file to begin.")
+
 
 
 
