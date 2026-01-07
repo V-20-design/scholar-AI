@@ -112,7 +112,7 @@ if uploaded_file:
             temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            my_file = client.files.upload(path=temp_path)
+            my_file = client.files.upload(file=temp_path)
             while my_file.state.name == "PROCESSING":
                 time.sleep(2)
                 my_file = client.files.get(name=my_file.name)
@@ -194,6 +194,7 @@ if uploaded_file:
 else:
     st.header("Welcome to the Lab")
     st.info("Upload a PDF or Video in the sidebar to start your research session.")
+
 
 
 
