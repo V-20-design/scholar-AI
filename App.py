@@ -1,4 +1,22 @@
 import streamlit as st
+
+# 1. This helps the browser recognize the app identity
+st.set_page_config(
+    page_title="ScholarAI",
+    page_icon="🎓",
+    layout="wide"
+)
+
+# 2. This is the "Magic Code" that triggers the Install button on Android
+st.markdown(
+    """
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png">
+    """,
+    unsafe_allow_html=True
+)
+import streamlit as st
 from google import genai
 from google.genai import types
 import os
@@ -175,4 +193,5 @@ if uploaded_file:
                 st.download_button("📥 Download Report", create_pdf_bytes(st.session_state.last_report), "Study_Lab_Report.pdf")
 else:
     st.header("Welcome to the Lab")
+
     st.info("Upload a PDF or Video in the sidebar to start your research session.")
