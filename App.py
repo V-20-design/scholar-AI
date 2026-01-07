@@ -7,9 +7,10 @@ from dotenv import load_dotenv, set_key
 from fpdf import FPDF
 
 # --- 1. MANDATORY TOP-LEVEL CONFIG (MUST BE FIRST) ---
+# We add a version tag (?v=1) to the icon URL to force browsers to refresh the cache.
 st.set_page_config(
     page_title="ScholarAI", 
-    page_icon="🎓", 
+    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=1", 
     layout="wide"
 )
 
@@ -19,8 +20,9 @@ st.markdown(
     <head>
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="mobile-web-app-capable" content="yes">
-        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png">
-        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png">
+        <meta name="apple-mobile-web-app-title" content="ScholarAI">
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=1">
+        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=1">
     </head>
     """,
     unsafe_allow_html=True
@@ -88,15 +90,13 @@ with st.sidebar:
         new_key = st.text_input("Enter Gemini API Key", type="password")
         if st.button("Unlock Lab"):
             if new_key:
-                # Note: set_key might not work on Streamlit Cloud's read-only file system. 
-                # Better to use Streamlit Secrets for the live version.
                 set_key(env_path, "GOOGLE_API_KEY", new_key.strip())
                 st.rerun()
         st.stop()
     
     st.success("API Key Active")
     model_choice = st.radio("Intelligence Level", ["Gemini 3 Flash (Fast)", "Gemini 3 Pro (Deep)"])
-    MODEL_ID = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro" # Updated to current GA model IDs
+    MODEL_ID = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro" 
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
     
     thinking_level = st.select_slider("Reasoning Depth", 
@@ -194,4 +194,5 @@ if uploaded_file:
 else:
     st.header("Welcome to the Lab")
     st.info("Upload a PDF or Video in the sidebar to start your research session.")
+
 
