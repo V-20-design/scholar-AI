@@ -5,19 +5,26 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Vertex AI Migration ---
+# --- 1. ENGINE: Robust Vertex AI Initialization ---
 def get_config():
-    # To use Vertex AI, you need your Google Cloud Project ID
+    # Attempt to pull from Streamlit Secrets or Environment
+    project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    
     return {
-        "api_key": st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"),
-        "project_id": st.secrets.get("GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT"),
-        "location": "us-central1" # Stable global location
+        "api_key": api_key,
+        "project_id": project_id,
+        "location": "us-central1" # Stable global endpoint for Kenya
     }
 
 cfg = get_config()
 
-# THE REGIONAL FIX: Use Vertex AI mode
-# Setting vertexai=True bypasses the AI Studio regional restrictions
+# VALIDATION: Prevent the ValueError by ensuring project_id is present
+if not cfg["project_id"]:
+    st.error("❌ Missing GOOGLE_CLOUD_PROJECT. Please add your Project ID to Streamlit Secrets.")
+    st.stop()
+
+# Initialize Client with Vertex AI enabled
 client = genai.Client(
     api_key=cfg["api_key"],
     vertexai=True,
@@ -26,7 +33,6 @@ client = genai.Client(
 )
 
 def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
-    # Vertex AI uses simplified model naming
     model_map = {
         "Gemini 1.5 Flash": "gemini-1.5-flash",
         "Gemini 1.5 Pro": "gemini-1.5-pro",
@@ -66,7 +72,8 @@ st.markdown("""
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
-    st.info(f"📍 Region: {cfg['location']} (Vertex AI)")
+    st.caption(f"📍 Region: {cfg['location']}")
+    st.caption(f"🆔 Project: {cfg['project_id']}")
     uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
     model_choice = st.selectbox("Intelligence Tier", ["Gemini 1.5 Flash", "Gemini 1.5 Pro", "Gemini 2.0 Flash"])
     if st.button("🧹 Clear & Reset"):
@@ -81,7 +88,6 @@ if uploaded_file:
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             try:
-                # Vertex AI handles file uploads through a similar File API
                 g_file = client.files.upload(file=temp_path)
                 while g_file.state.name == "PROCESSING":
                     time.sleep(4)
@@ -102,8 +108,10 @@ if uploaded_file:
     col_v, col_a = st.columns([1, 1], gap="large")
 
     with col_v:
-        if "video" in st.session_state.mime: st.video(uploaded_file)
-        else: st.info(f"📄 Active File: {st.session_state.file_name}")
+        if "video" in st.session_state.mime: 
+            st.video(uploaded_file)
+        else: 
+            st.info(f"📄 Active File: {st.session_state.file_name}")
 
     with col_a:
         tabs = st.tabs(["💬 Chat", "🎙️ Audio", "📄 Thesis"])
@@ -140,6 +148,7 @@ if uploaded_file:
                 st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
 else:
     st.info("Upload a file to begin.")
+
 
 
 
