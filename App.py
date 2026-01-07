@@ -6,11 +6,11 @@ import time
 from dotenv import load_dotenv, set_key
 from fpdf import FPDF
 
-# --- 1. MANDATORY TOP-LEVEL CONFIG (MUST BE FIRST) ---
-# We add a version tag (?v=1) to the icon URL to force browsers to refresh the cache.
+# --- 1. MANDATORY TOP-LEVEL CONFIG ---
+# Using version v=3 to force a browser icon refresh
 st.set_page_config(
     page_title="ScholarAI", 
-    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=1", 
+    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=3", 
     layout="wide"
 )
 
@@ -21,8 +21,8 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-title" content="ScholarAI">
-        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=1">
-        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=1">
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=3">
+        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=3">
     </head>
     """,
     unsafe_allow_html=True
@@ -95,23 +95,21 @@ with st.sidebar:
         st.stop()
     
     st.success("API Key Active")
-    model_choice = st.radio("Intelligence Level", ["Gemini 3 Flash (Fast)", "Gemini 3 Pro (Deep)"])
-    MODEL_ID = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro" 
+    # Updated labels to be more standard
+    model_choice = st.radio("Intelligence Level", ["Gemini Flash (Fast)", "Gemini Pro (Deep)"])
+    MODEL_ID = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro"
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
-    
-    thinking_level = st.select_slider("Reasoning Depth", 
-        options=[types.ThinkingLevel.MINIMAL, types.ThinkingLevel.MEDIUM, types.ThinkingLevel.HIGH],
-        value=types.ThinkingLevel.HIGH)
 
 client = genai.Client(api_key=api_key)
 
 # --- 6. ENGINE & DASHBOARD ---
 if uploaded_file:
     if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
-        with st.status("Gemini 3 Processing Context...") as status:
+        with st.status("Gemini Processing Context...") as status:
             temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
+            # Corrected parameter: file=
             my_file = client.files.upload(file=temp_path)
             while my_file.state.name == "PROCESSING":
                 time.sleep(2)
@@ -130,7 +128,7 @@ if uploaded_file:
 
     st.title("🎓 Scholar Research Lab")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Engine", "Gemini 3 Pro" if "pro" in MODEL_ID else "Gemini 3 Flash")
+    m1.metric("Engine", "Gemini Pro" if "pro" in MODEL_ID else "Gemini Flash")
     m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
     m3.metric("Context", "2M Tokens Ready")
     st.divider()
@@ -143,7 +141,7 @@ if uploaded_file:
             st.video(uploaded_file)
         else:
             st.info(f"Loaded: {st.session_state.file_name}")
-            st.write("Full file structure indexed for high-reasoning extraction.")
+            st.write("Full file structure indexed.")
 
     with col_tools:
         tab1, tab2, tab3 = st.tabs(["💬 Deep Chat", "🧠 AI Study Tools", "📄 Export"])
@@ -161,10 +159,10 @@ if uploaded_file:
                 with chat_container.chat_message("assistant"):
                     res_box = st.empty()
                     full_res = ""
+                    # Simplified call to ensure maximum compatibility
                     for chunk in client.models.generate_content_stream(
                         model=MODEL_ID,
-                        contents=[shared_file_part, user_prompt],
-                        config=types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level=thinking_level))
+                        contents=[shared_file_part, user_prompt]
                     ):
                         full_res += chunk.text
                         res_box.markdown(full_res + "▌")
@@ -194,6 +192,7 @@ if uploaded_file:
 else:
     st.header("Welcome to the Lab")
     st.info("Upload a PDF or Video in the sidebar to start your research session.")
+
 
 
 
