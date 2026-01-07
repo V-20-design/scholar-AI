@@ -2,8 +2,7 @@ import streamlit as st
 from google import genai
 from google.genai import types
 import os
-import time
-from dotenv import load_dotenv, set_key
+import base64
 from fpdf import FPDF
 
 # --- 1. MANDATORY TOP-LEVEL CONFIG ---
@@ -32,17 +31,15 @@ def inject_dark_academy_css():
         .stMarkdown p, .stMarkdown li { color: #ced4da !important; font-size: 1.05rem !important; }
         [data-testid="stMetricValue"] { color: #4dabf7 !important; font-weight: 700 !important; }
         
-        /* Button Styling */
         .stButton>button {
             background-color: #1c1f26; color: #ffffff; border-radius: 10px;
-            border: 1px solid #343a40; transition: all 0.3s ease;
+            border: 1px solid #4dabf7; transition: all 0.3s ease;
             width: 100%; height: 3em;
         }
         .stButton>button:hover {
-            border-color: #4dabf7; color: #4dabf7; background-color: #252a34; transform: translateY(-2px);
+            border-color: #ffffff; color: #4dabf7; background-color: #252a34; transform: translateY(-2px);
         }
         
-        /* Tabs and Sidebar */
         .stTabs [data-baseweb="tab-list"] { gap: 24px; }
         .stTabs [data-baseweb="tab"] { color: #ced4da; }
         section[data-testid="stSidebar"] { background-color: #16191f !important; }
@@ -53,25 +50,19 @@ def inject_dark_academy_css():
 
 inject_dark_academy_css()
 
-# --- 3. AUTH & ENVIRONMENT ---
-env_path = ".env"
-if os.path.exists(env_path):
-    load_dotenv(env_path, override=True)
-
+# --- 3. AUTH & UTILS ---
 def get_api_key():
-    # Priority 1: Streamlit Cloud Secrets
+    # Priority 1: Streamlit Secrets (Best for GitHub/Cloud)
     if hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
         return st.secrets["GOOGLE_API_KEY"].strip()
-    # Priority 2: Local .env file
-    key = os.getenv("GOOGLE_API_KEY")
-    if key: return key.strip()
-    return None
+    # Priority 2: Local Environment
+    return os.getenv("GOOGLE_API_KEY")
 
 def create_pdf_bytes(text):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Helvetica", size=12)
-    # Deep clean text for FPDF compatibility
+    # Filter text for FPDF compatibility
     clean_text = text.encode('ascii', 'ignore').decode('ascii')
     pdf.multi_cell(0, 10, txt=clean_text)
     return bytes(pdf.output())
@@ -82,18 +73,11 @@ api_key = get_api_key()
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
     if not api_key:
-        new_key = st.text_input("Enter Gemini API Key", type="password")
-        if st.button("Unlock Lab"):
-            if new_key:
-                # Save locally for development, but Cloud will use Secrets
-                if not os.path.exists(env_path): open(env_path, 'a').close()
-                set_key(env_path, "GOOGLE_API_KEY", new_key.strip())
-                st.rerun()
+        st.warning("Please add GOOGLE_API_KEY to Secrets.")
         st.stop()
     
     st.success("API Key Active")
     model_choice = st.radio("Intelligence Level", ["Gemini 2.0 Flash (Fast)", "Gemini 1.5 Pro (Deep)"])
-    # Stability IDs for 2026
     MODEL_ID = "gemini-2.0-flash" if "Flash" in model_choice else "gemini-1.5-pro" 
     
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
@@ -108,46 +92,30 @@ client = genai.Client(api_key=api_key)
 
 # --- 5. ENGINE & DASHBOARD ---
 if uploaded_file:
-    # Handle File Upload & Processing
-    if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
-        with st.status("Gemini 3 Processing Context...") as status:
-            temp_path = f"temp_{uploaded_file.name}"
-            with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
-            
-            my_file = client.files.upload(file=temp_path)
-            while my_file.state.name == "PROCESSING":
-                time.sleep(2)
-                my_file = client.files.get(name=my_file.name)
-            
-            st.session_state.file_uri = my_file.uri
-            st.session_state.mime_type = uploaded_file.type
-            st.session_state.file_name = uploaded_file.name
-            os.remove(temp_path)
-            status.update(label="Context Fully Loaded!", state="complete")
-
-    # Define shared file part
-    shared_file_part = types.Part.from_uri(
-        file_uri=st.session_state.file_uri, 
-        mime_type=st.session_state.mime_type
+    # STABLE DATA LOADING: Using Bytes to prevent "Redacted ClientError"
+    file_bytes = uploaded_file.read()
+    shared_file_part = types.Part.from_bytes(
+        data=file_bytes, 
+        mime_type=uploaded_file.type
     )
 
     # Dashboard Header
     st.title("🎓 Scholar Research Lab")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Engine", "Pro Edition" if "pro" in MODEL_ID else "Flash Edition")
+    m1.metric("Engine", "Professor Edition")
     m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
-    m3.metric("Context", "Ready (2M Tokens)")
+    m3.metric("Context", "Ready (Stateless)")
     st.divider()
 
     col_viewer, col_tools = st.columns([1, 1], gap="large")
 
     with col_viewer:
         st.subheader("📁 Reference Media")
-        if "mp4" in st.session_state.mime_type:
+        if "mp4" in uploaded_file.type:
             st.video(uploaded_file)
         else:
-            st.info(f"Loaded: {st.session_state.file_name}")
-            st.markdown("> **Note:** PDF context is fully indexed. You can ask questions about specific pages or data points in the chat.")
+            st.info(f"Indexing complete: {uploaded_file.name}")
+            st.markdown("> **Professor's Note:** Full document context is now active in memory.")
 
     with col_tools:
         tab1, tab2, tab3 = st.tabs(["💬 Deep Chat", "🧠 AI Study Tools", "📄 Export"])
@@ -160,31 +128,30 @@ if uploaded_file:
                 for msg in st.session_state.messages:
                     st.chat_message(msg["role"]).write(msg["content"])
 
-            if user_prompt := st.chat_input("Ask about your file..."):
+            if user_prompt := st.chat_input("Ask your Professor..."):
                 st.session_state.messages.append({"role": "user", "content": user_prompt})
                 chat_container.chat_message("user").write(user_prompt)
                 
                 with chat_container.chat_message("assistant"):
-                    res_box = st.empty()
-                    full_res = ""
-                    for chunk in client.models.generate_content_stream(
+                    # SYSTEM INSTRUCTION: Hardcoded persona for consistency
+                    sys_instr = "You are a Senior Research Professor. Provide academic, rigorous, and deep-dive answers based strictly on the provided file."
+                    
+                    response = client.models.generate_content(
                         model=MODEL_ID,
-                        contents=[shared_file_part, user_prompt]
-                    ):
-                        full_res += chunk.text
-                        res_box.markdown(full_res + "▌")
-                    res_box.markdown(full_res)
-                    st.session_state.messages.append({"role": "assistant", "content": full_res})
+                        contents=[shared_file_part, f"{sys_instr}\n\nUser Question: {user_prompt}"]
+                    )
+                    st.markdown(response.text)
+                    st.session_state.messages.append({"role": "assistant", "content": response.text})
 
         with tab2:
-            st.subheader("Automated Assistance")
+            st.subheader("Automated Study Tools")
             c1, c2 = st.columns(2)
             
             if c1.button("🚀 Instant Study Plan"):
                 with st.spinner("Analyzing..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Create a structured 10-minute study plan for this material."]
+                        contents=[shared_file_part, "Act as a Professor and create a structured study plan for this."]
                     )
                     st.markdown(f"### Study Strategy\n{res.text}")
 
@@ -192,17 +159,17 @@ if uploaded_file:
                 with st.spinner("Extracting..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Create 5 practice flashcards (Question/Answer) for the core concepts."]
+                        contents=[shared_file_part, "Generate 5 high-level academic flashcards from this material."]
                     )
                     st.markdown(f"### Practice Set\n{res.text}")
 
         with tab3:
             st.subheader("Final Documentation")
             if st.button("✨ Compile Full Research Report"):
-                with st.spinner("Generating deep-dive guide..."):
+                with st.spinner("Writing deep-dive guide..."):
                     report = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Generate a comprehensive, academic study report based on this file."]
+                        contents=[shared_file_part, "Generate a comprehensive, academic research report based on this material."]
                     )
                     st.session_state.last_report = report.text
                     st.markdown(st.session_state.last_report)
@@ -211,9 +178,10 @@ if uploaded_file:
                 st.download_button(
                     "📥 Download Report as PDF", 
                     create_pdf_bytes(st.session_state.last_report), 
-                    f"ScholarAI_{st.session_state.file_name}.pdf"
+                    f"ScholarAI_Report.pdf"
                 )
 else:
-    st.header("Research Lab Offline")
-    st.info("Please upload a PDF or MP4 file in the sidebar to initialize the AI Scholar.")
+    st.header("Welcome to the Lab")
+    st.info("Upload a PDF or Video in the sidebar to initialize the AI Scholar Professor.")
+
 
