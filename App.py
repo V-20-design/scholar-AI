@@ -1,22 +1,4 @@
 import streamlit as st
-
-# 1. This helps the browser recognize the app identity
-st.set_page_config(
-    page_title="ScholarAI",
-    page_icon="🎓",
-    layout="wide"
-)
-
-# 2. This is the "Magic Code" that triggers the Install button on Android
-st.markdown(
-    """
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="mobile-web-app-capable" content="yes">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png">
-    """,
-    unsafe_allow_html=True
-)
-import streamlit as st
 from google import genai
 from google.genai import types
 import os
@@ -24,9 +6,27 @@ import time
 from dotenv import load_dotenv, set_key
 from fpdf import FPDF
 
-# --- 1. CONFIG & DEEP DARK UI STYLING ---
-st.set_page_config(page_title="Gemini 3 Pro Scholar", page_icon="🎓", layout="wide")
+# --- 1. MANDATORY TOP-LEVEL CONFIG (MUST BE FIRST) ---
+st.set_page_config(
+    page_title="ScholarAI", 
+    page_icon="🎓", 
+    layout="wide"
+)
 
+# --- 2. PWA & ICON INJECTION ---
+st.markdown(
+    """
+    <head>
+        <meta name="apple-mobile-web-app-capable" content="yes">
+        <meta name="mobile-web-app-capable" content="yes">
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png">
+        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png">
+    </head>
+    """,
+    unsafe_allow_html=True
+)
+
+# --- 3. UI STYLING ---
 def inject_dark_academy_css():
     st.markdown(
         """
@@ -59,7 +59,7 @@ def inject_dark_academy_css():
 
 inject_dark_academy_css()
 
-# --- 2. AUTH & ENVIRONMENT ---
+# --- 4. AUTH & ENVIRONMENT ---
 env_path = ".env"
 if os.path.exists(env_path):
     load_dotenv(env_path, override=True)
@@ -79,7 +79,7 @@ def create_pdf_bytes(text):
     pdf.multi_cell(0, 10, txt=clean_text)
     return bytes(pdf.output())
 
-# --- 3. SIDEBAR CONTROLS ---
+# --- 5. SIDEBAR CONTROLS ---
 api_key = get_api_key()
 
 with st.sidebar:
@@ -88,13 +88,15 @@ with st.sidebar:
         new_key = st.text_input("Enter Gemini API Key", type="password")
         if st.button("Unlock Lab"):
             if new_key:
+                # Note: set_key might not work on Streamlit Cloud's read-only file system. 
+                # Better to use Streamlit Secrets for the live version.
                 set_key(env_path, "GOOGLE_API_KEY", new_key.strip())
                 st.rerun()
         st.stop()
     
     st.success("API Key Active")
     model_choice = st.radio("Intelligence Level", ["Gemini 3 Flash (Fast)", "Gemini 3 Pro (Deep)"])
-    MODEL_ID = "gemini-3-flash-preview" if "Flash" in model_choice else "gemini-3-pro-preview"
+    MODEL_ID = "gemini-1.5-flash" if "Flash" in model_choice else "gemini-1.5-pro" # Updated to current GA model IDs
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
     
     thinking_level = st.select_slider("Reasoning Depth", 
@@ -103,14 +105,14 @@ with st.sidebar:
 
 client = genai.Client(api_key=api_key)
 
-# --- 4. ENGINE & DASHBOARD ---
+# --- 6. ENGINE & DASHBOARD ---
 if uploaded_file:
     if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
         with st.status("Gemini 3 Processing Context...") as status:
             temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            my_file = client.files.upload(file=temp_path)
+            my_file = client.files.upload(path=temp_path)
             while my_file.state.name == "PROCESSING":
                 time.sleep(2)
                 my_file = client.files.get(name=my_file.name)
@@ -121,7 +123,6 @@ if uploaded_file:
             os.remove(temp_path)
             status.update(label="Context Fully Loaded!", state="complete")
 
-    # Define the "File Part" once to reuse across all buttons
     shared_file_part = types.Part.from_uri(
         file_uri=st.session_state.file_uri, 
         mime_type=st.session_state.mime_type
@@ -129,7 +130,7 @@ if uploaded_file:
 
     st.title("🎓 Scholar Research Lab")
     m1, m2, m3 = st.columns(3)
-    m1.metric("Engine", "Gemini 3 Pro" if "Pro" in MODEL_ID else "Gemini 3 Flash")
+    m1.metric("Engine", "Gemini 3 Pro" if "pro" in MODEL_ID else "Gemini 3 Flash")
     m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
     m3.metric("Context", "2M Tokens Ready")
     st.divider()
@@ -160,7 +161,6 @@ if uploaded_file:
                 with chat_container.chat_message("assistant"):
                     res_box = st.empty()
                     full_res = ""
-                    # Multi-part content sent here
                     for chunk in client.models.generate_content_stream(
                         model=MODEL_ID,
                         contents=[shared_file_part, user_prompt],
@@ -193,5 +193,5 @@ if uploaded_file:
                 st.download_button("📥 Download Report", create_pdf_bytes(st.session_state.last_report), "Study_Lab_Report.pdf")
 else:
     st.header("Welcome to the Lab")
-
     st.info("Upload a PDF or Video in the sidebar to start your research session.")
+
