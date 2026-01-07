@@ -9,7 +9,7 @@ from fpdf import FPDF
 # --- 1. MANDATORY TOP-LEVEL CONFIG ---
 st.set_page_config(
     page_title="ScholarAI", 
-    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=5", 
+    page_icon="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=7", 
     layout="wide"
 )
 
@@ -20,8 +20,8 @@ st.markdown(
         <meta name="apple-mobile-web-app-capable" content="yes">
         <meta name="mobile-web-app-capable" content="yes">
         <meta name="apple-mobile-web-app-title" content="ScholarAI">
-        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=5">
-        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=5">
+        <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=7">
+        <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/2997/2997313.png?v=7">
     </head>
     """,
     unsafe_allow_html=True
@@ -48,6 +48,7 @@ def inject_dark_academy_css():
         .stButton>button {
             background-color: #1c1f26; color: #ffffff; border-radius: 10px;
             border: 1px solid #343a40; transition: all 0.3s ease;
+            width: 100%;
         }
         .stButton>button:hover {
             border-color: #4dabf7; color: #4dabf7; background-color: #252a34; transform: translateY(-2px);
@@ -102,6 +103,12 @@ with st.sidebar:
         options=[types.ThinkingLevel.MINIMAL, types.ThinkingLevel.MEDIUM, types.ThinkingLevel.HIGH],
         value=types.ThinkingLevel.HIGH)
 
+    st.divider()
+    if st.button("🧹 Clear Research History"):
+        st.session_state.messages = []
+        if "last_report" in st.session_state: del st.session_state.last_report
+        st.rerun()
+
 client = genai.Client(api_key=api_key)
 
 # --- 6. ENGINE & DASHBOARD ---
@@ -111,7 +118,6 @@ if uploaded_file:
             temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
             
-            # FIX 1: Use file= instead of path=
             my_file = client.files.upload(file=temp_path)
             while my_file.state.name == "PROCESSING":
                 time.sleep(2)
@@ -161,13 +167,16 @@ if uploaded_file:
                 with chat_container.chat_message("assistant"):
                     res_box = st.empty()
                     full_res = ""
-                    # FIX 2: Wrapped in safety/thinking check
+                    
+                    # Logic to prevent ClientError on Flash models
+                    gen_config = types.GenerateContentConfig(
+                        thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
+                    ) if "pro" in MODEL_ID else None
+
                     for chunk in client.models.generate_content_stream(
                         model=MODEL_ID,
                         contents=[shared_file_part, user_prompt],
-                        config=types.GenerateContentConfig(
-                            thinking_config=types.ThinkingConfig(thinking_level=thinking_level) if "pro" in MODEL_ID else None
-                        )
+                        config=gen_config
                     ):
                         full_res += chunk.text
                         res_box.markdown(full_res + "▌")
@@ -177,19 +186,35 @@ if uploaded_file:
         with tab2:
             st.subheader("Automated Study Tools")
             c1, c2 = st.columns(2)
+            btn_config = types.GenerateContentConfig(
+                thinking_config=types.ThinkingConfig(thinking_level=thinking_level)
+            ) if "pro" in MODEL_ID else None
+
             if c1.button("🚀 Instant Study Plan"):
                 with st.spinner("Analyzing..."):
-                    res = client.models.generate_content(model=MODEL_ID, contents=[shared_file_part, "Create a 10-minute study plan."])
+                    res = client.models.generate_content(
+                        model=MODEL_ID, 
+                        contents=[shared_file_part, "Create a 10-minute study plan."],
+                        config=btn_config
+                    )
                     st.markdown(f"**AI Strategy:**\n{res.text}")
             if c2.button("🔥 Smart Flashcards"):
                 with st.spinner("Extracting..."):
-                    res = client.models.generate_content(model=MODEL_ID, contents=[shared_file_part, "Create 5 practice flashcards."])
+                    res = client.models.generate_content(
+                        model=MODEL_ID, 
+                        contents=[shared_file_part, "Create 5 practice flashcards."],
+                        config=btn_config
+                    )
                     st.markdown(f"**Practice Set:**\n{res.text}")
 
         with tab3:
             if st.button("✨ Compile PDF Report"):
                 with st.spinner("Writing guide..."):
-                    report = client.models.generate_content(model=MODEL_ID, contents=[shared_file_part, "Generate a comprehensive study report."])
+                    report = client.models.generate_content(
+                        model=MODEL_ID, 
+                        contents=[shared_file_part, "Generate a comprehensive study report."],
+                        config=btn_config
+                    )
                     st.session_state.last_report = report.text
                     st.markdown(st.session_state.last_report)
             if "last_report" in st.session_state:
@@ -197,6 +222,7 @@ if uploaded_file:
 else:
     st.header("Welcome to the Lab")
     st.info("Upload a PDF or Video in the sidebar to start your research session.")
+
 
 
 
