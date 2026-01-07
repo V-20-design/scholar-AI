@@ -5,11 +5,11 @@ import os
 import base64
 from fpdf import FPDF
 
-# --- 1. TOP-LEVEL CONFIG ---
+# --- 1. MANDATORY TOP-LEVEL CONFIG ---
 st.set_page_config(page_title="ScholarAI", page_icon="🎓", layout="wide")
 
-# --- 2. UI STYLING ---
-def inject_custom_css():
+# --- 2. UI STYLING (DARK ACADEMY) ---
+def inject_dark_academy_css():
     st.markdown("""
         <style>
         .stApp { background-color: #0e1117; }
@@ -19,6 +19,7 @@ def inject_custom_css():
             border-radius: 20px;
             padding: 3rem;
             border: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
         }
         h1, h2, h3 { color: #ffffff !important; font-weight: 700 !important; }
         .stMarkdown p, .stMarkdown li { color: #ced4da !important; font-size: 1.05rem !important; }
@@ -27,12 +28,12 @@ def inject_custom_css():
             background-color: #1c1f26; color: #ffffff; border-radius: 10px;
             border: 1px solid #4dabf7; width: 100%; height: 3em;
         }
-        .stButton>button:hover { border-color: #ffffff; background-color: #252a34; }
+        .stButton>button:hover { border-color: #ffffff; background-color: #252a34; transform: translateY(-2px); }
         section[data-testid="stSidebar"] { background-color: #16191f !important; }
         </style>
     """, unsafe_allow_html=True)
 
-inject_custom_css()
+inject_dark_academy_css()
 
 # --- 3. AUTH & UTILS ---
 def get_api_key():
@@ -53,7 +54,7 @@ api_key = get_api_key()
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
     if not api_key:
-        st.error("Missing API Key! Add it to Streamlit Secrets.")
+        st.error("Add GOOGLE_API_KEY to Streamlit Secrets.")
         st.stop()
     
     model_choice = st.radio("Intelligence Level", ["Gemini 2.0 Flash (Fast)", "Gemini 1.5 Pro (Deep)"])
@@ -66,24 +67,25 @@ with st.sidebar:
 
 client = genai.Client(api_key=api_key)
 
-# --- 5. MAIN ENGINE ---
+# --- 5. ENGINE & DASHBOARD ---
 if uploaded_file:
-    # THE FIX: Read file as bytes instead of using client.files.upload()
-    file_bytes = uploaded_file.read()
-    shared_file_part = types.Part.from_bytes(data=file_bytes, mime_type=uploaded_file.type)
+    # ULTIMATE STABILITY: Function to get fresh bytes for every request
+    def get_file_part():
+        uploaded_file.seek(0) # Reset pointer
+        return types.Part.from_bytes(data=uploaded_file.read(), mime_type=uploaded_file.type)
 
-    # Professor Persona Configuration
+    # Professor Persona
     PROFESSOR_ROLE = (
-        "You are a Senior Research Professor. Your goal is to provide academic, "
-        "rigorous, and deep-dive answers based on the provided material. "
-        "Maintain a sophisticated but encouraging educational tone."
+        "You are a Senior Research Professor. Provide academic, rigorous, "
+        "and deep-dive answers based on the provided file. Always cite specific "
+        "parts of the material and maintain a professional, educational tone."
     )
 
     st.title("🎓 Scholar Research Lab")
     m1, m2, m3 = st.columns(3)
     m1.metric("Engine", "Professor Edition")
     m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
-    m3.metric("Status", "Stateless (Stable)")
+    m3.metric("Status", "Stateless / Robust")
     st.divider()
 
     col_viewer, col_tools = st.columns([1, 1], gap="large")
@@ -99,20 +101,22 @@ if uploaded_file:
         tab1, tab2, tab3 = st.tabs(["💬 Deep Chat", "🧠 AI Study Tools", "📄 Export"])
 
         with tab1:
-            chat_container = st.container(height=400)
+            chat_container = st.container(height=450)
             if "messages" not in st.session_state: st.session_state.messages = []
             
-            for msg in st.session_state.messages:
-                chat_container.chat_message(msg["role"]).write(msg["content"])
+            with chat_container:
+                for msg in st.session_state.messages:
+                    st.chat_message(msg["role"]).write(msg["content"])
 
             if user_prompt := st.chat_input("Ask your Professor..."):
                 st.session_state.messages.append({"role": "user", "content": user_prompt})
                 chat_container.chat_message("user").write(user_prompt)
                 
                 with chat_container.chat_message("assistant"):
+                    # Fresh byte generation right before request
                     response = client.models.generate_content(
                         model=MODEL_ID,
-                        contents=[shared_file_part, user_prompt],
+                        contents=[get_file_part(), user_prompt],
                         config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
                     )
                     st.markdown(response.text)
@@ -123,29 +127,29 @@ if uploaded_file:
             c1, c2 = st.columns(2)
             
             if c1.button("🚀 Instant Study Plan"):
-                with st.spinner("Professor is drafting..."):
+                with st.spinner("Analyzing..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Create a structured study plan."],
+                        contents=[get_file_part(), "Create a 10-minute academic study plan."],
                         config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
                     )
                     st.markdown(res.text)
 
             if c2.button("🔥 Smart Flashcards"):
-                with st.spinner("Extracting concepts..."):
+                with st.spinner("Extracting..."):
                     res = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Generate 5 academic flashcards."],
+                        contents=[get_file_part(), "Generate 5 high-level flashcards."],
                         config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
                     )
                     st.markdown(res.text)
 
         with tab3:
-            if st.button("✨ Compile Full Report"):
+            if st.button("✨ Compile Full Research Report"):
                 with st.spinner("Writing..."):
                     report = client.models.generate_content(
                         model=MODEL_ID, 
-                        contents=[shared_file_part, "Write a comprehensive research report."],
+                        contents=[get_file_part(), "Write a full academic research report."],
                         config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
                     )
                     st.session_state.last_report = report.text
@@ -155,7 +159,9 @@ if uploaded_file:
                 st.download_button("📥 Download PDF", create_pdf_bytes(st.session_state.last_report), "Scholar_Report.pdf")
 else:
     st.header("Welcome to the Lab")
-    st.info("Upload a file in the sidebar to start.")
+    st.info("Upload a PDF or MP4 in the sidebar to begin.")
+    
+
 
 
 
