@@ -1,4 +1,3 @@
-
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -6,18 +5,19 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Optimized for High-Latency Handshakes ---
+# --- 1. ENGINE: Optimized for High-Latency Uploads ---
 def get_api_key():
     return st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 api_key = get_api_key()
 
-# THE KEY FIX: We set a 300s (5-minute) timeout to allow for large file indexing
+# THE CORE FIX: Massive timeouts and forced light-weight headers
 client = genai.Client(
     api_key=api_key,
     http_options={
         'headers': {'x-goog-api-key': api_key},
-        'timeout': 300.0  
+        'timeout': 600.0, # 10 Minutes for slow network conditions
+        'connect_timeout': 60.0
     }
 )
 
@@ -68,7 +68,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-# --- 4. THE PERSISTENT HANDSHAKE ---
+# --- 4. THE PERSISTENT HANDSHAKE (WITH RETRY LOGIC) ---
 if uploaded_file:
     if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
         with st.status("Professor is indexing the context...") as status:
@@ -77,24 +77,34 @@ if uploaded_file:
                 f.write(uploaded_file.getbuffer())
             
             try:
-                # 1. Initial Upload
-                status.write("Uploading to Google Cloud...")
-                g_file = client.files.upload(file=temp_path)
+                # 1. Step: Upload with retry logic for "Read Operation Timeout"
+                status.write("Attempting Secure Upload to Google Cloud...")
                 
-                # 2. Polling loop with a progress bar to prevent 'Read Timeout'
+                success = False
+                retries = 3
+                while not success and retries > 0:
+                    try:
+                        g_file = client.files.upload(file=temp_path)
+                        success = True
+                    except Exception as e:
+                        retries -= 1
+                        status.write(f"Connection dropped. Retrying... ({retries} attempts left)")
+                        time.sleep(2)
+                        if retries == 0: raise e
+                
+                # 2. Step: Polling loop to prevent 'Read Timeout' while server indexes
                 progress_bar = st.progress(0)
                 start_time = time.time()
                 
                 while g_file.state.name == "PROCESSING":
                     elapsed = time.time() - start_time
-                    # Simulate progress while Google indexes
                     percent = min(int((elapsed / 60) * 100), 98) 
                     progress_bar.progress(percent)
                     
-                    if elapsed > 300: # 5 minute safety cap
-                        raise Exception("Indexing taking too long. Please try a smaller file.")
+                    if elapsed > 600: # 10 minute safety cap
+                        raise Exception("Indexing taking too long. Try a smaller file.")
                     
-                    time.sleep(5) # Slow down polling to avoid API pressure
+                    time.sleep(7) # Longer polling interval reduces network chatter
                     g_file = client.files.get(name=g_file.name)
                 
                 progress_bar.progress(100)
@@ -158,6 +168,7 @@ if uploaded_file:
                 st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
 else:
     st.info("Upload a file in the sidebar to begin.")
+
 
 
 
