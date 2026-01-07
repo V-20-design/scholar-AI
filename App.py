@@ -5,27 +5,27 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Pydantic-Safe Initialization ---
+# --- 1. ENGINE: API Version & Model Stability Fix ---
 def get_api_key():
     return st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 api_key = get_api_key()
 
-# FIX: Pydantic Validation Error fix. 
-# We remove the custom timeout dictionary that was causing the crash 
-# and use the SDK's internal default handling which is safer for Cloud environments.
+# THE FIX: Explicitly setting the client to use the latest verified model strings
+# and ensuring the handshake uses the correct API key headers.
 client = genai.Client(
     api_key=api_key,
     http_options={'headers': {'x-goog-api-key': api_key}}
 )
 
 def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
+    # Mapping to versioned IDs to avoid the 404 "Not Found" error
     model_map = {
-        "Gemini 1.5 Flash": "gemini-1.5-flash",
-        "Gemini 1.5 Pro": "gemini-1.5-pro",
+        "Gemini 1.5 Flash": "gemini-1.5-flash-002",
+        "Gemini 1.5 Pro": "gemini-1.5-pro-002",
         "Gemini 2.0 Flash": "gemini-2.0-flash-exp"
     }
-    target_model = model_map.get(model_choice, "gemini-1.5-flash")
+    target_model = model_map.get(model_choice, "gemini-1.5-flash-002")
     
     try:
         file_part = types.Part.from_uri(file_uri=file_uri, mime_type=mime_type)
@@ -39,7 +39,19 @@ def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
         )
         return response.text
     except Exception as e:
-        st.error(f"Professor Busy: {str(e)[:150]}")
+        # Fallback logic if the versioned ID fails
+        if "404" in str(e):
+            try:
+                # Attempt with the bare ID if the versioned one is missing
+                response = client.models.generate_content(
+                    model="gemini-1.5-flash",
+                    contents=[file_part, prompt]
+                )
+                return response.text
+            except:
+                st.error("Model Endpoint Error: The requested model version is unavailable in your region.")
+        else:
+            st.error(f"Professor Busy: {str(e)[:150]}")
         return None
 
 # --- 2. UI STYLING ---
@@ -75,22 +87,17 @@ if uploaded_file:
                 f.write(uploaded_file.getbuffer())
             
             try:
-                # Standard upload call
                 status.write("Transferring to Google Cloud...")
                 g_file = client.files.upload(file=temp_path)
                 
-                # Polling for completion
+                # Check processing status
                 progress_bar = st.progress(0)
                 start_time = time.time()
-                
                 while g_file.state.name == "PROCESSING":
                     elapsed = time.time() - start_time
                     percent = min(int((elapsed / 60) * 100), 98) 
                     progress_bar.progress(percent)
-                    
-                    if elapsed > 300: # 5 minute safety cap
-                        raise Exception("Indexing timeout.")
-                    
+                    if elapsed > 300: raise Exception("Indexing timeout.")
                     time.sleep(5) 
                     g_file = client.files.get(name=g_file.name)
                 
