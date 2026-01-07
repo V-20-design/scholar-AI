@@ -5,162 +5,114 @@ import os
 import base64
 from fpdf import FPDF
 
-# --- 1. MANDATORY TOP-LEVEL CONFIG ---
+# --- 1. CONFIG & CSS ---
 st.set_page_config(page_title="ScholarAI", page_icon="🎓", layout="wide")
 
-# --- 2. UI STYLING (DARK ACADEMY) ---
-def inject_dark_academy_css():
+def inject_ui():
     st.markdown("""
         <style>
         .stApp { background-color: #0e1117; }
-        .main .block-container {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border-radius: 20px;
-            padding: 3rem;
-            border: 1px solid rgba(255, 255, 255, 0.1);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
-        }
-        h1, h2, h3 { color: #ffffff !important; font-weight: 700 !important; }
-        .stMarkdown p, .stMarkdown li { color: #ced4da !important; font-size: 1.05rem !important; }
-        [data-testid="stMetricValue"] { color: #4dabf7 !important; font-weight: 700 !important; }
-        .stButton>button {
-            background-color: #1c1f26; color: #ffffff; border-radius: 10px;
-            border: 1px solid #4dabf7; width: 100%; height: 3em;
-        }
-        .stButton>button:hover { border-color: #ffffff; background-color: #252a34; transform: translateY(-2px); }
-        section[data-testid="stSidebar"] { background-color: #16191f !important; }
+        .main .block-container { background: rgba(255, 255, 255, 0.05); border-radius: 20px; padding: 3rem; border: 1px solid rgba(255, 255, 255, 0.1); }
+        h1, h2 { color: #ffffff !important; }
+        .stButton>button { background-color: #1c1f26; border: 1px solid #4dabf7; width: 100%; color: white; }
         </style>
     """, unsafe_allow_html=True)
 
-inject_dark_academy_css()
+inject_ui()
 
-# --- 3. AUTH & UTILS ---
+# --- 2. THE STABLE FILE HANDLER ---
+@st.cache_data(show_spinner=False)
+def process_file_to_bytes(uploaded_file):
+    """Safely reads file and returns bytes + forced mime_type"""
+    bytes_data = uploaded_file.getvalue() # Use getvalue() for better stability in Streamlit
+    size_mb = len(bytes_data) / (1024 * 1024)
+    
+    # Check 20MB limit for Inline Data
+    if size_mb > 20:
+        return None, f"File too large ({size_mb:.1f}MB). Limit is 20MB."
+    
+    # Standardize Mime-Type
+    m_type = uploaded_file.type
+    if not m_type or m_type == "application/octet-stream":
+        m_type = "application/pdf" if uploaded_file.name.endswith(".pdf") else "video/mp4"
+        
+    return bytes_data, m_type
+
+# --- 3. AUTH ---
 def get_api_key():
-    if hasattr(st, "secrets") and "GOOGLE_API_KEY" in st.secrets:
-        return st.secrets["GOOGLE_API_KEY"].strip()
-    return os.getenv("GOOGLE_API_KEY")
+    return st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
-def create_pdf_bytes(text):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Helvetica", size=12)
-    clean_text = text.encode('ascii', 'ignore').decode('ascii')
-    pdf.multi_cell(0, 10, txt=clean_text)
-    return bytes(pdf.output())
-
-# --- 4. SIDEBAR ---
 api_key = get_api_key()
+client = genai.Client(api_key=api_key) if api_key else None
+
+# --- 4. SIDEBAR & LOGIC ---
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
     if not api_key:
-        st.error("Add GOOGLE_API_KEY to Streamlit Secrets.")
+        st.error("Missing API Key in Secrets.")
+        st.stop()
+        
+    MODEL_ID = st.radio("Model", ["gemini-2.0-flash", "gemini-1.5-pro"])
+    uploaded_file = st.file_uploader("Upload (Max 20MB)", type=['pdf', 'mp4'])
+
+if uploaded_file:
+    file_bytes, error_or_mime = process_file_to_bytes(uploaded_file)
+    
+    if file_bytes is None:
+        st.error(error_or_mime)
         st.stop()
     
-    model_choice = st.radio("Intelligence Level", ["Gemini 2.0 Flash (Fast)", "Gemini 1.5 Pro (Deep)"])
-    MODEL_ID = "gemini-2.0-flash" if "Flash" in model_choice else "gemini-1.5-pro" 
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4'])
+    # Create the part once
+    shared_file_part = types.Part.from_bytes(data=file_bytes, mime_type=error_or_mime)
     
-    if st.button("🧹 Reset Lab"):
-        st.session_state.clear()
-        st.rerun()
-
-client = genai.Client(api_key=api_key)
-
-# --- 5. ENGINE & DASHBOARD ---
-if uploaded_file:
-    # ULTIMATE STABILITY: Function to get fresh bytes for every request
-    def get_file_part():
-        uploaded_file.seek(0) # Reset pointer
-        return types.Part.from_bytes(data=uploaded_file.read(), mime_type=uploaded_file.type)
-
-    # Professor Persona
-    PROFESSOR_ROLE = (
-        "You are a Senior Research Professor. Provide academic, rigorous, "
-        "and deep-dive answers based on the provided file. Always cite specific "
-        "parts of the material and maintain a professional, educational tone."
-    )
+    PROFESSOR_ROLE = "You are a Senior Research Professor. Be academic, cited, and sophisticated."
 
     st.title("🎓 Scholar Research Lab")
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Engine", "Professor Edition")
-    m2.metric("Input", uploaded_file.type.split('/')[-1].upper())
-    m3.metric("Status", "Stateless / Robust")
-    st.divider()
+    
+    col1, col2 = st.columns([1, 1], gap="large")
+    
+    with col1:
+        st.subheader("📁 Reference")
+        if "video" in error_or_mime: st.video(uploaded_file)
+        else: st.info(f"Context: {uploaded_file.name}")
 
-    col_viewer, col_tools = st.columns([1, 1], gap="large")
-
-    with col_viewer:
-        st.subheader("📁 Reference Media")
-        if "mp4" in uploaded_file.type:
-            st.video(uploaded_file)
-        else:
-            st.info(f"Context Active: {uploaded_file.name}")
-
-    with col_tools:
-        tab1, tab2, tab3 = st.tabs(["💬 Deep Chat", "🧠 AI Study Tools", "📄 Export"])
-
+    with col2:
+        tab1, tab2 = st.tabs(["💬 Chat", "🧠 Tools"])
+        
         with tab1:
-            chat_container = st.container(height=450)
             if "messages" not in st.session_state: st.session_state.messages = []
+            for m in st.session_state.messages: st.chat_message(m["role"]).write(m["content"])
             
-            with chat_container:
-                for msg in st.session_state.messages:
-                    st.chat_message(msg["role"]).write(msg["content"])
-
-            if user_prompt := st.chat_input("Ask your Professor..."):
-                st.session_state.messages.append({"role": "user", "content": user_prompt})
-                chat_container.chat_message("user").write(user_prompt)
+            if prompt := st.chat_input("Ask Professor..."):
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                st.chat_message("user").write(prompt)
                 
-                with chat_container.chat_message("assistant"):
-                    # Fresh byte generation right before request
-                    response = client.models.generate_content(
+                try:
+                    res = client.models.generate_content(
                         model=MODEL_ID,
-                        contents=[get_file_part(), user_prompt],
+                        contents=[shared_file_part, prompt],
                         config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
                     )
-                    st.markdown(response.text)
-                    st.session_state.messages.append({"role": "assistant", "content": response.text})
+                    st.chat_message("assistant").write(res.text)
+                    st.session_state.messages.append({"role": "assistant", "content": res.text})
+                except Exception as e:
+                    st.error(f"Professor is busy. (Technical: {str(e)})")
 
         with tab2:
-            st.subheader("Automated Assistance")
-            c1, c2 = st.columns(2)
-            
-            if c1.button("🚀 Instant Study Plan"):
-                with st.spinner("Analyzing..."):
-                    res = client.models.generate_content(
-                        model=MODEL_ID, 
-                        contents=[get_file_part(), "Create a 10-minute academic study plan."],
-                        config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
-                    )
-                    st.markdown(res.text)
-
-            if c2.button("🔥 Smart Flashcards"):
-                with st.spinner("Extracting..."):
-                    res = client.models.generate_content(
-                        model=MODEL_ID, 
-                        contents=[get_file_part(), "Generate 5 high-level flashcards."],
-                        config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
-                    )
-                    st.markdown(res.text)
-
-        with tab3:
-            if st.button("✨ Compile Full Research Report"):
-                with st.spinner("Writing..."):
-                    report = client.models.generate_content(
-                        model=MODEL_ID, 
-                        contents=[get_file_part(), "Write a full academic research report."],
-                        config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
-                    )
-                    st.session_state.last_report = report.text
-                    st.markdown(st.session_state.last_report)
-            
-            if "last_report" in st.session_state:
-                st.download_button("📥 Download PDF", create_pdf_bytes(st.session_state.last_report), "Scholar_Report.pdf")
-else:
-    st.header("Welcome to the Lab")
-    st.info("Upload a PDF or MP4 in the sidebar to begin.")
+            if st.button("🚀 Generate Study Plan"):
+                with st.spinner("Drafting..."):
+                    # We wrap this in a TRY block to catch the ClientError specifically
+                    try:
+                        res = client.models.generate_content(
+                            model=MODEL_ID,
+                            contents=[shared_file_part, "Create a structured study plan for this."],
+                            config=types.GenerateContentConfig(system_instruction=PROFESSOR_ROLE)
+                        )
+                        st.markdown(res.text)
+                    except Exception as e:
+                        st.error("Request failed. Try a smaller file or wait 60 seconds.")
     
+
 
 
 
