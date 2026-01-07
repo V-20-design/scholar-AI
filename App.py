@@ -1,3 +1,4 @@
+
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -5,18 +6,18 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Optimized for Connection Stability ---
+# --- 1. ENGINE: Optimized for High-Latency Handshakes ---
 def get_api_key():
     return st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
 
 api_key = get_api_key()
 
-# THE FIX: We use a massive timeout (120s) and force the API key into the headers
+# THE KEY FIX: We set a 300s (5-minute) timeout to allow for large file indexing
 client = genai.Client(
     api_key=api_key,
     http_options={
         'headers': {'x-goog-api-key': api_key},
-        'timeout': 120.0  # Prevents the 'Read operation timed out' error
+        'timeout': 300.0  
     }
 )
 
@@ -34,7 +35,7 @@ def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
             model=target_model,
             contents=[file_part, prompt],
             config=types.GenerateContentConfig(
-                system_instruction="You are 'The Scholar,' an academic professor.",
+                system_instruction="You are 'The Scholar,' an expert Research Professor.",
                 temperature=0.3
             )
         )
@@ -48,7 +49,11 @@ st.set_page_config(page_title="ScholarAI Pro", page_icon="🎓", layout="wide")
 st.markdown("""
     <style>
     .stApp { background-color: #0e1117; color: white; }
-    .main .block-container { background: rgba(255, 255, 255, 0.03); border-radius: 15px; padding: 2rem; border: 1px solid rgba(255, 255, 255, 0.1); }
+    .main .block-container { 
+        background: rgba(255, 255, 255, 0.03); 
+        border-radius: 15px; padding: 2rem; 
+        border: 1px solid rgba(255, 255, 255, 0.1); 
+    }
     .stButton>button { border-radius: 8px; border: 1px solid #4dabf7; background: #1c1f26; color: white; width: 100%; }
     .stButton>button:hover { background: #4dabf7; color: black; }
     </style>
@@ -57,39 +62,39 @@ st.markdown("""
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
-    uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
-    model_choice = st.selectbox("Model", ["Gemini 1.5 Flash", "Gemini 1.5 Pro", "Gemini 2.0 Flash"])
-    if st.button("🧹 Reset Lab"):
+    uploaded_file = st.file_uploader("Upload Source (PDF/MP4)", type=['pdf', 'mp4'])
+    model_choice = st.selectbox("Intelligence Tier", ["Gemini 1.5 Flash", "Gemini 1.5 Pro", "Gemini 2.0 Flash"])
+    if st.button("🧹 Clear & Reset"):
         st.session_state.clear()
         st.rerun()
 
-# --- 4. THE RESILIENT HANDSHAKE ---
+# --- 4. THE PERSISTENT HANDSHAKE ---
 if uploaded_file:
-    if "file_uri" not in st.session_state or st.session_state.file_name != uploaded_file.name:
-        with st.status("Professor's Office: Establishing Connection...") as status:
+    if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
+        with st.status("Professor is indexing the context...") as status:
             temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             
             try:
-                # 1. Upload the file
-                status.write("Uploading file to Google servers...")
+                # 1. Initial Upload
+                status.write("Uploading to Google Cloud...")
                 g_file = client.files.upload(file=temp_path)
                 
-                # 2. Monitor Processing state with a progress bar
+                # 2. Polling loop with a progress bar to prevent 'Read Timeout'
                 progress_bar = st.progress(0)
                 start_time = time.time()
                 
-                # We loop until ACTIVE, allowing for some latency
                 while g_file.state.name == "PROCESSING":
                     elapsed = time.time() - start_time
-                    percent = min(int((elapsed / 45) * 100), 95) # Assume 45s avg processing
+                    # Simulate progress while Google indexes
+                    percent = min(int((elapsed / 60) * 100), 98) 
                     progress_bar.progress(percent)
                     
-                    if elapsed > 180: # 3-minute hard limit
-                        raise TimeoutError("Google processing is taking longer than 3 minutes.")
+                    if elapsed > 300: # 5 minute safety cap
+                        raise Exception("Indexing taking too long. Please try a smaller file.")
                     
-                    time.sleep(5) # Higher sleep interval to avoid hitting API rate limits
+                    time.sleep(5) # Slow down polling to avoid API pressure
                     g_file = client.files.get(name=g_file.name)
                 
                 progress_bar.progress(100)
@@ -97,13 +102,12 @@ if uploaded_file:
                 st.session_state.mime = uploaded_file.type
                 st.session_state.file_name = uploaded_file.name
                 status.update(label="Handshake Successful!", state="complete")
-            
+                
             except Exception as e:
                 st.error(f"Handshake Failed: {str(e)}")
                 st.stop()
             finally:
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
+                if os.path.exists(temp_path): os.remove(temp_path)
 
     # --- 5. DASHBOARD ---
     st.title("🎓 Scholar Research Lab")
@@ -116,37 +120,35 @@ if uploaded_file:
             st.info(f"📄 Active File: {st.session_state.file_name}")
 
     with col_a:
-        tabs = st.tabs(["💬 Chat", "🎙️ Audio", "📄 Report"])
+        tabs = st.tabs(["💬 Chat", "🎙️ Audio", "📄 Thesis"])
         
         with tabs[0]:
             if "msgs" not in st.session_state: st.session_state.msgs = []
-            c = st.container(height=350)
-            for m in st.session_state.msgs: c.chat_message(m["role"]).write(m["content"])
+            container = st.container(height=350)
+            for m in st.session_state.msgs: container.chat_message(m["role"]).write(m["content"])
             
             if p := st.chat_input("Ask the Professor..."):
                 st.session_state.msgs.append({"role": "user", "content": p})
-                c.chat_message("user").write(p)
+                container.chat_message("user").write(p)
                 ans = safe_gemini_call(p, st.session_state.file_uri, st.session_state.mime, model_choice)
                 if ans:
-                    c.chat_message("assistant").write(ans)
+                    container.chat_message("assistant").write(ans)
                     st.session_state.msgs.append({"role": "assistant", "content": ans})
 
         with tabs[1]:
-            if st.button("🎙️ Summarize with Voice"):
-                with st.spinner("Preparing audio..."):
-                    txt = safe_gemini_call("Summarize this in 3 sentences.", st.session_state.file_uri, st.session_state.mime, model_choice)
-                    if txt:
-                        audio_io = io.BytesIO()
-                        gTTS(text=txt, lang='en').write_to_fp(audio_io)
-                        st.audio(audio_io.getvalue())
+            if st.button("🔊 Voice Summary"):
+                txt = safe_gemini_call("Summarize this in 2 sentences.", st.session_state.file_uri, st.session_state.mime, model_choice)
+                if txt:
+                    audio_io = io.BytesIO()
+                    gTTS(text=txt, lang='en').write_to_fp(audio_io)
+                    st.audio(audio_io.getvalue())
 
         with tabs[2]:
-            if st.button("✨ Draft Thesis"):
-                with st.spinner("Writing..."):
-                    rep = safe_gemini_call("Generate a formal academic report.", st.session_state.file_uri, st.session_state.mime, model_choice)
-                    if rep:
-                        st.markdown(rep)
-                        st.session_state.last_rep = rep
+            if st.button("✨ Draft Report"):
+                rep = safe_gemini_call("Generate a formal report.", st.session_state.file_uri, st.session_state.mime, model_choice)
+                if rep:
+                    st.markdown(rep)
+                    st.session_state.last_rep = rep
             
             if "last_rep" in st.session_state:
                 pdf = FPDF()
@@ -155,7 +157,7 @@ if uploaded_file:
                 pdf.multi_cell(0, 10, txt=st.session_state.last_rep.encode('latin-1', 'replace').decode('latin-1'))
                 st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
 else:
-    st.info("Upload a source file to start the session.")
+    st.info("Upload a file in the sidebar to begin.")
 
 
 
