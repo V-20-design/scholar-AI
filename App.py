@@ -5,28 +5,34 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Global Regional Bypass ---
-def get_api_key():
-    return st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
+# --- 1. ENGINE: Vertex AI Migration ---
+def get_config():
+    # To use Vertex AI, you need your Google Cloud Project ID
+    return {
+        "api_key": st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY"),
+        "project_id": st.secrets.get("GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT"),
+        "location": "us-central1" # Stable global location
+    }
 
-api_key = get_api_key()
+cfg = get_config()
 
-# THE REGIONAL FIX: 
-# We explicitly do NOT set a location, which forces Google to use the 
-# global load balancer to find the nearest available region for Kenya.
+# THE REGIONAL FIX: Use Vertex AI mode
+# Setting vertexai=True bypasses the AI Studio regional restrictions
 client = genai.Client(
-    api_key=api_key,
-    http_options={'headers': {'x-goog-api-key': api_key}}
+    api_key=cfg["api_key"],
+    vertexai=True,
+    project=cfg["project_id"],
+    location=cfg["location"]
 )
 
 def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
-    # Using 'models/' prefix forces the SDK to look at the global model registry
+    # Vertex AI uses simplified model naming
     model_map = {
-        "Gemini 1.5 Flash": "models/gemini-1.5-flash",
-        "Gemini 1.5 Pro": "models/gemini-1.5-pro",
-        "Gemini 2.0 Flash": "models/gemini-2.0-flash-exp"
+        "Gemini 1.5 Flash": "gemini-1.5-flash",
+        "Gemini 1.5 Pro": "gemini-1.5-pro",
+        "Gemini 2.0 Flash": "gemini-2.0-flash-exp"
     }
-    target_model = model_map.get(model_choice, "models/gemini-1.5-flash")
+    target_model = model_map.get(model_choice, "gemini-1.5-flash")
     
     try:
         file_part = types.Part.from_uri(file_uri=file_uri, mime_type=mime_type)
@@ -35,22 +41,12 @@ def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
             contents=[file_part, prompt],
             config=types.GenerateContentConfig(
                 system_instruction="You are 'The Scholar,' an expert Research Professor.",
-                temperature=0.4
+                temperature=0.3
             )
         )
         return response.text
     except Exception as e:
-        # If the canonical ID fails, we try the "Pro" version which often has wider regional availability
-        if "404" in str(e) or "unavailable" in str(e).lower():
-            st.error(f"📍 Region Block (Kenya): Attempting fallback to Pro models...")
-            try:
-                res = client.models.generate_content(
-                    model="models/gemini-1.5-pro",
-                    contents=[file_part, prompt]
-                )
-                return res.text
-            except:
-                st.error("❌ Regional Lockdown: Google Gemini is currently restricted for this API key in your region. Consider using a VPN or a Vertex AI project.")
+        st.error(f"Professor Busy: {str(e)[:150]}")
         return None
 
 # --- 2. UI STYLING ---
@@ -70,7 +66,8 @@ st.markdown("""
 # --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
-    uploaded_file = st.file_uploader("Upload Source (PDF/MP4)", type=['pdf', 'mp4'])
+    st.info(f"📍 Region: {cfg['location']} (Vertex AI)")
+    uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
     model_choice = st.selectbox("Intelligence Tier", ["Gemini 1.5 Flash", "Gemini 1.5 Pro", "Gemini 2.0 Flash"])
     if st.button("🧹 Clear & Reset"):
         st.session_state.clear()
@@ -79,11 +76,12 @@ with st.sidebar:
 # --- 4. THE HANDSHAKE ---
 if uploaded_file:
     if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
-        with st.status("Linking Context...") as status:
+        with st.status("Linking Context via Vertex...") as status:
             temp_path = f"temp_{uploaded_file.name}"
             with open(temp_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
             try:
+                # Vertex AI handles file uploads through a similar File API
                 g_file = client.files.upload(file=temp_path)
                 while g_file.state.name == "PROCESSING":
                     time.sleep(4)
@@ -123,7 +121,10 @@ if uploaded_file:
         with tabs[1]:
             if st.button("🔊 Voice Summary"):
                 txt = safe_gemini_call("Summary in 2 sentences.", st.session_state.file_uri, st.session_state.mime, model_choice)
-                if txt: st.audio(io.BytesIO(gTTS(text=txt, lang='en')._p_write_to_fp()))
+                if txt:
+                    audio_io = io.BytesIO()
+                    gTTS(text=txt, lang='en').write_to_fp(audio_io)
+                    st.audio(audio_io.getvalue())
 
         with tabs[2]:
             if st.button("✨ Draft Thesis"):
@@ -139,6 +140,7 @@ if uploaded_file:
                 st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
 else:
     st.info("Upload a file to begin.")
+
 
 
 
