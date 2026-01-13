@@ -5,57 +5,16 @@ import os, io, time
 from fpdf import FPDF
 from gtts import gTTS
 
-# --- 1. ENGINE: Robust Vertex AI Initialization ---
+# --- 1. ENGINE: Vertex AI Configuration ---
 def get_config():
-    # Attempt to pull from Streamlit Secrets or Environment
-    project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
-    api_key = st.secrets.get("GOOGLE_API_KEY") or os.getenv("GOOGLE_API_KEY")
-    
-    return {
-        "api_key": api_key,
-        "project_id": project_id,
-        "location": "us-central1" # Stable global endpoint for Kenya
-    }
+    # Pulling from Streamlit Secrets
+    project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT")
+    api_key = st.secrets.get("GOOGLE_API_KEY")
+    return {"api_key": api_key, "project_id": project_id, "location": "us-central1"}
 
 cfg = get_config()
 
-# VALIDATION: Prevent the ValueError by ensuring project_id is present
-if not cfg["project_id"]:
-    st.error("❌ Missing GOOGLE_CLOUD_PROJECT. Please add your Project ID to Streamlit Secrets.")
-    st.stop()
-
-# Initialize Client with Vertex AI enabled
-client = genai.Client(
-    api_key=cfg["api_key"],
-    vertexai=True,
-    project=cfg["project_id"],
-    location=cfg["location"]
-)
-
-def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
-    model_map = {
-        "Gemini 1.5 Flash": "gemini-1.5-flash",
-        "Gemini 1.5 Pro": "gemini-1.5-pro",
-        "Gemini 2.0 Flash": "gemini-2.0-flash-exp"
-    }
-    target_model = model_map.get(model_choice, "gemini-1.5-flash")
-    
-    try:
-        file_part = types.Part.from_uri(file_uri=file_uri, mime_type=mime_type)
-        response = client.models.generate_content(
-            model=target_model,
-            contents=[file_part, prompt],
-            config=types.GenerateContentConfig(
-                system_instruction="You are 'The Scholar,' an expert Research Professor.",
-                temperature=0.3
-            )
-        )
-        return response.text
-    except Exception as e:
-        st.error(f"Professor Busy: {str(e)[:150]}")
-        return None
-
-# --- 2. UI STYLING ---
+# UI STYLING
 st.set_page_config(page_title="ScholarAI Pro", page_icon="🎓", layout="wide")
 st.markdown("""
     <style>
@@ -69,85 +28,101 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 3. SIDEBAR ---
+# BLOCKER: Configuration Check
+if not cfg["project_id"] or not cfg["api_key"]:
+    st.title("🎓 ScholarAI Setup")
+    st.warning("⚠️ Action Required: Add credentials to Streamlit Secrets.")
+    st.info("Check the chat for instructions on finding your Project ID.")
+    st.stop()
+
+# INITIALIZE CLIENT (VERTEX MODE)
+try:
+    client = genai.Client(
+        api_key=cfg["api_key"], 
+        vertexai=True, 
+        project=cfg["project_id"], 
+        location=cfg["location"]
+    )
+except Exception as e:
+    st.error(f"Initialization Failed: {e}")
+    st.stop()
+
+def safe_gemini_call(prompt, file_uri, mime_type, model_choice):
+    model_map = {"Gemini 1.5 Flash": "gemini-1.5-flash", "Gemini 1.5 Pro": "gemini-1.5-pro"}
+    try:
+        file_part = types.Part.from_uri(file_uri=file_uri, mime_type=mime_type)
+        response = client.models.generate_content(
+            model=model_map.get(model_choice, "gemini-1.5-flash"),
+            contents=[file_part, prompt],
+            config=types.GenerateContentConfig(
+                system_instruction="You are 'The Scholar,' an expert Professor. Provide citations.",
+                temperature=0.3
+            )
+        )
+        return response.text
+    except Exception as e:
+        st.error(f"Request Error: {str(e)[:150]}")
+        return None
+
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("🛡️ Scholar Admin")
-    st.caption(f"📍 Region: {cfg['location']}")
-    st.caption(f"🆔 Project: {cfg['project_id']}")
+    st.success(f"Project: {cfg['project_id']}")
     uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
-    model_choice = st.selectbox("Intelligence Tier", ["Gemini 1.5 Flash", "Gemini 1.5 Pro", "Gemini 2.0 Flash"])
-    if st.button("🧹 Clear & Reset"):
+    model_choice = st.selectbox("Model", ["Gemini 1.5 Flash", "Gemini 1.5 Pro"])
+    if st.button("🧹 Reset Session"):
         st.session_state.clear()
         st.rerun()
 
-# --- 4. THE HANDSHAKE ---
+# --- MAIN INTERFACE ---
 if uploaded_file:
     if "file_uri" not in st.session_state or st.session_state.get("file_name") != uploaded_file.name:
-        with st.status("Linking Context via Vertex...") as status:
+        with st.status("Professor is reading...") as status:
             temp_path = f"temp_{uploaded_file.name}"
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
             try:
                 g_file = client.files.upload(file=temp_path)
                 while g_file.state.name == "PROCESSING":
                     time.sleep(4)
                     g_file = client.files.get(name=g_file.name)
-                
                 st.session_state.file_uri = g_file.uri
                 st.session_state.mime = uploaded_file.type
                 st.session_state.file_name = uploaded_file.name
-                status.update(label="Handshake Successful!", state="complete")
-            except Exception as e:
-                st.error(f"Handshake Failed: {str(e)}")
-                st.stop()
+                status.update(label="Analysis Ready!", state="complete")
             finally:
                 if os.path.exists(temp_path): os.remove(temp_path)
 
-    # --- 5. DASHBOARD ---
     st.title("🎓 Scholar Research Lab")
-    col_v, col_a = st.columns([1, 1], gap="large")
-
+    col_v, col_a = st.columns(2)
     with col_v:
-        if "video" in st.session_state.mime: 
-            st.video(uploaded_file)
-        else: 
-            st.info(f"📄 Active File: {st.session_state.file_name}")
-
+        if "video" in st.session_state.mime: st.video(uploaded_file)
+        else: st.info(f"📄 Active: {uploaded_file.name}")
+    
     with col_a:
         tabs = st.tabs(["💬 Chat", "🎙️ Audio", "📄 Thesis"])
         with tabs[0]:
-            if "msgs" not in st.session_state: st.session_state.msgs = []
-            for m in st.session_state.msgs: st.chat_message(m["role"]).write(m["content"])
             if p := st.chat_input("Ask the Professor..."):
-                st.session_state.msgs.append({"role": "user", "content": p})
-                st.chat_message("user").write(p)
                 ans = safe_gemini_call(p, st.session_state.file_uri, st.session_state.mime, model_choice)
-                if ans:
-                    st.chat_message("assistant").write(ans)
-                    st.session_state.msgs.append({"role": "assistant", "content": ans})
+                if ans: st.chat_message("assistant").write(ans)
         
         with tabs[1]:
-            if st.button("🔊 Voice Summary"):
-                txt = safe_gemini_call("Summary in 2 sentences.", st.session_state.file_uri, st.session_state.mime, model_choice)
-                if txt:
-                    audio_io = io.BytesIO()
-                    gTTS(text=txt, lang='en').write_to_fp(audio_io)
-                    st.audio(audio_io.getvalue())
-
+            if st.button("🔊 Generate Summary"):
+                txt = safe_gemini_call("Summarize in 2 sentences.", st.session_state.file_uri, st.session_state.mime, model_choice)
+                if txt: st.audio(io.BytesIO(gTTS(text=txt, lang='en')._p_write_to_fp()))
+        
         with tabs[2]:
-            if st.button("✨ Draft Thesis"):
-                rep = safe_gemini_call("Generate a formal report.", st.session_state.file_uri, st.session_state.mime, model_choice)
+            if st.button("✨ Draft Report"):
+                rep = safe_gemini_call("Draft a formal report.", st.session_state.file_uri, st.session_state.mime, model_choice)
                 if rep:
                     st.markdown(rep)
-                    st.session_state.last_rep = rep
-            if "last_rep" in st.session_state:
-                pdf = FPDF()
-                pdf.add_page()
-                pdf.set_font("Arial", size=11)
-                pdf.multi_cell(0, 10, txt=st.session_state.last_rep.encode('latin-1', 'replace').decode('latin-1'))
-                st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
+                    pdf = FPDF()
+                    pdf.add_page()
+                    pdf.set_font("Arial", size=11)
+                    pdf.multi_cell(0, 10, txt=rep.encode('latin-1', 'replace').decode('latin-1'))
+                    st.download_button("📥 Download PDF", pdf.output(dest='S'), "Report.pdf")
 else:
-    st.info("Upload a file to begin.")
+    st.info("Upload a source file to start the lab.")
+
 
 
 
