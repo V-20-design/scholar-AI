@@ -6,7 +6,6 @@ import json, os, io
 # --- 1. AUTHENTICATION ---
 @st.cache_resource
 def init_scholar():
-    # Make sure these match your Streamlit Secrets exactly
     project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT")
     sa_json_str = st.secrets.get("SERVICE_ACCOUNT_JSON")
     
@@ -15,14 +14,12 @@ def init_scholar():
         return None
 
     try:
-        # 1. Parse the string into a Python Dictionary
-        sa_info = json.loads(sa_json_str)
+        # Clean up the string in case of accidental hidden characters
+        clean_json = sa_json_str.strip()
         
-        # 2. Initialize the Client by passing the 'vertexai' flag 
-        # The SDK will look for credentials in the environment or we can 
-        # provide the project/location explicitly for Vertex.
-        # To fix the metadata error, we must ensure the environment is clean:
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS_DICT"] = sa_json_str
+        # Initialize the Client for Vertex AI (Kenya-stable)
+        # We pass the JSON string via the standard environment variable
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS_DICT"] = clean_json
         
         client = genai.Client(
             vertexai=True,
@@ -30,6 +27,9 @@ def init_scholar():
             location="us-central1"
         )
         return client
+    except json.JSONDecodeError as je:
+        st.error(f"❌ JSON Format Error: Check your triple quotes in Secrets. Detail: {je}")
+        return None
     except Exception as e:
         st.error(f"❌ Initialization Failed: {e}")
         return None
@@ -41,21 +41,20 @@ client = init_scholar()
 # --- 2. THE RESEARCH FUNCTION ---
 def scholar_ask(prompt, file_bytes, mime):
     try:
-        # Convert bytes to a Part for Vertex AI
+        # Send bytes directly to Vertex AI
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime)
         
-        # Call Gemini 1.5 Flash
         response = client.models.generate_content(
             model="gemini-1.5-flash",
             contents=[file_part, prompt],
             config=types.GenerateContentConfig(
-                system_instruction="You are 'The Scholar,' an expert research assistant.",
+                system_instruction="You are 'The Scholar,' a research assistant.",
                 temperature=0.2
             )
         )
         return response.text
     except Exception as e:
-        st.error(f"⚠️ Professor Error: {str(e)[:200]}")
+        st.error(f"⚠️ Professor Error: {str(e)[:250]}")
         return None
 
 # --- 3. MAIN INTERFACE ---
@@ -65,30 +64,31 @@ if client:
     uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
 
     if uploaded_file:
-        # Store file in session state to prevent reloading
-        if "active_file" not in st.session_state or st.session_state.active_file_name != uploaded_file.name:
-            st.session_state.active_file = uploaded_file.read()
-            st.session_state.active_file_name = uploaded_file.name
-            st.session_state.active_mime = uploaded_file.type
+        # Keep file in memory to prevent re-reads
+        if "file_cache" not in st.session_state or st.session_state.cache_name != uploaded_file.name:
+            st.session_state.file_cache = uploaded_file.read()
+            st.session_state.cache_name = uploaded_file.name
+            st.session_state.cache_mime = uploaded_file.type
 
         col1, col2 = st.columns(2)
         with col1:
-            if "video" in st.session_state.active_mime:
-                st.video(st.session_state.active_file)
+            if "video" in st.session_state.cache_mime:
+                st.video(st.session_state.file_cache)
             else:
-                st.info(f"📄 Document Loaded: {st.session_state.active_file_name}")
+                st.info(f"📄 Document Loaded: {st.session_state.cache_name}")
                 
         with col2:
-            query = st.chat_input("Ask a question about this material...")
+            query = st.chat_input("Ask the Professor...")
             if query:
                 with st.spinner("Scholar is processing..."):
-                    ans = scholar_ask(query, st.session_state.active_file, st.session_state.active_mime)
+                    ans = scholar_ask(query, st.session_state.file_cache, st.session_state.cache_mime)
                     if ans:
                         st.chat_message("assistant").write(ans)
     else:
-        st.info("👋 Welcome! Please upload a document or video to begin.")
+        st.info("👋 Welcome! Please upload a file to begin.")
 else:
-    st.warning("Please verify your Service Account JSON is correctly pasted into Streamlit Secrets.")
+    st.warning("Awaiting proper configuration in Streamlit Secrets.")
+
 
 
 
