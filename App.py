@@ -6,24 +6,25 @@ import json, os
 # --- 1. SETTINGS & STYLING ---
 st.set_page_config(page_title="ScholarAI Pro", layout="wide", page_icon="🎓")
 
-# Custom CSS for a "Cooler" Look
+# Fixed the 'unsafe_allow_html' typo here
 st.markdown("""
     <style>
-    .stChatMessage { background-color: #f0f2f6; border-radius: 10px; padding: 10px; margin-bottom: 10px; }
-    .stActionButton { background-color: #4CAF50; color: white; }
+    .stChatMessage { border-radius: 15px; padding: 15px; margin-bottom: 10px; border: 1px solid #e0e0e0; }
+    .stChatInputContainer { padding-bottom: 20px; }
     </style>
-""", unsafe_allow_value=True)
+""", unsafe_allow_html=True)
 
-# --- 2. AUTHENTICATION (The "Neighborhood" Fix) ---
+# --- 2. AUTHENTICATION ---
 @st.cache_resource
 def init_scholar():
     project_id = st.secrets.get("GOOGLE_CLOUD_PROJECT")
     sa_json = st.secrets.get("SERVICE_ACCOUNT_JSON")
     
     if not sa_json or not project_id:
-        st.error("❌ Credentials missing! Please check Streamlit Secrets.")
+        st.error("❌ Credentials missing in Streamlit Secrets!")
         return None
     try:
+        # Vertex AI setup for Kenya-based stability
         os.environ["GOOGLE_APPLICATION_CREDENTIALS_DICT"] = sa_json.strip()
         return genai.Client(vertexai=True, project=project_id, location="us-central1")
     except Exception as e:
@@ -32,68 +33,84 @@ def init_scholar():
 
 client = init_scholar()
 
-# --- 3. THE ENGINE ---
-def scholar_chat(prompt, file_bytes, mime, history):
+# --- 3. THE CHAT ENGINE ---
+def scholar_chat(prompt, file_bytes, mime, history_msgs):
     try:
+        # Convert bytes to a file part
         file_part = types.Part.from_bytes(data=file_bytes, mime_type=mime)
-        # Combine history for context
-        full_contents = [file_part] + history + [prompt]
+        
+        # Build the conversation context
+        contents = [file_part]
+        for m in history_msgs:
+            role = "user" if m["role"] == "user" else "model"
+            contents.append(types.Content(role=role, parts=[types.Part.from_text(text=m["content"])]))
+        
+        # Add the current prompt
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=prompt)]))
         
         response = client.models.generate_content(
             model="gemini-1.5-flash",
-            contents=full_contents,
+            contents=contents,
             config=types.GenerateContentConfig(
-                system_instruction="You are 'The Scholar,' an elite research assistant. Be insightful, academic, and helpful.",
-                temperature=0.3
+                system_instruction="You are 'The Scholar,' an expert research professor. Provide deep academic analysis.",
+                temperature=0.2
             )
         )
         return response.text
     except Exception as e:
-        return f"⚠️ Error: {str(e)[:100]}"
+        return f"⚠️ Scholar Connection Error: {str(e)[:150]}"
 
 # --- 4. MAIN INTERFACE ---
-st.title("🎓 Scholar Research Lab")
-st.caption("Advanced Material Analysis via Vertex AI")
-
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar for Uploads
+st.title("🎓 Scholar Research Lab")
+st.sidebar.header("📁 Material Upload")
+
 with st.sidebar:
-    st.header("📂 Research Material")
-    uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
-    if st.button("🗑️ Clear Chat"):
+    uploaded_file = st.file_uploader("Upload PDF or Research Video", type=['pdf', 'mp4'])
+    if st.button("🗑️ Reset Session"):
         st.session_state.messages = []
         st.rerun()
 
-if uploaded_file:
-    # Preview the file
-    file_bytes = uploaded_file.read()
-    if "video" in uploaded_file.type:
-        st.video(file_bytes)
-    else:
-        st.info(f"📄 Analyzing: {uploaded_file.name}")
+if uploaded_file and client:
+    # Handle file reading safely
+    file_bytes = uploaded_file.getvalue()
+    
+    # UI Layout: File on left, Chat on right
+    col1, col2 = st.columns([1, 1.5])
+    
+    with col1:
+        st.subheader("Reference Material")
+        if "video" in uploaded_file.type:
+            st.video(file_bytes)
+        else:
+            st.info(f"📄 Analyzing: {uploaded_file.name}")
+            st.caption("Document is loaded into the Professor's memory.")
 
-    # Display Chat History
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
+    with col2:
+        st.subheader("Analysis Chat")
+        # Display existing messages
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
 
-    # Chat Input
-    if prompt := st.chat_input("Ask the Scholar..."):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Analyzing material..."):
-                # Pass previous messages for context
-                history = [types.Content(role=m["role"], parts=[types.Part.from_text(text=m["content"])]) for m in st.session_state.messages[:-1]]
-                response = scholar_chat(prompt, file_bytes, uploaded_file.type, history)
-                st.markdown(response)
-                st.session_state.messages.append({"role": "assistant", "content": response})
+        # New Input
+        if prompt := st.chat_input("Ask the Scholar..."):
+            with st.chat_message("user"):
+                st.markdown(prompt)
+            
+            with st.chat_message("assistant"):
+                with st.spinner("Professor is thinking..."):
+                    response = scholar_chat(prompt, file_bytes, uploaded_file.type, st.session_state.messages)
+                    st.markdown(response)
+            
+            # Save to history
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            st.session_state.messages.append({"role": "assistant", "content": response})
 else:
-    st.info("👋 Upload a document or video in the sidebar to begin your research.")
+    st.info("👋 To begin, please upload a research document or video in the sidebar.")
+
 
 
 
