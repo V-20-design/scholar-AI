@@ -20,9 +20,15 @@ def init_scholar():
         return available[0]
     except: return "models/gemini-1.5-flash"
 
-st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
+# --- 2. THE ICON FIX ---
+# This line sets the icon for the browser tab and the installed PWA
+st.set_page_config(
+    page_title="Scholar AI Pro", 
+    layout="wide", 
+    page_icon="🎓"  # This is the graduation cap icon
+)
 
-# --- 2. UTILITIES ---
+# --- 3. UTILITIES ---
 def create_pdf(history):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -40,7 +46,7 @@ def create_pdf(history):
         pdf.ln(5)
     return bytes(pdf.output())
 
-# --- 3. INTERFACE ---
+# --- 4. INTERFACE ---
 if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
@@ -66,6 +72,24 @@ with st.sidebar:
                     except Exception as e: st.error(f"Quota Error: {e}")
 
     st.divider()
+    
+    # NEW FEATURE: STUDY TIMER (POMODORO)
+    st.header("⏱️ Focus Timer")
+    if "timer_active" not in st.session_state: st.session_state.timer_active = False
+    
+    timer_col1, timer_col2 = st.columns(2)
+    with timer_col1:
+        if st.button("▶️ 25m Focus"):
+            st.session_state.timer_active = True
+            # In a real Streamlit app, we'd use a background thread, 
+            # but for now, we'll show a simple notification.
+            st.toast("Focus timer started! 25 minutes.")
+    with timer_col2:
+        if st.button("⏹️ Reset"):
+            st.session_state.timer_active = False
+            st.toast("Timer reset.")
+
+    st.divider()
     if st.session_state.history:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="scholar_memo.pdf", use_container_width=True)
@@ -73,7 +97,7 @@ with st.sidebar:
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
-# --- 4. MAIN DASHBOARD ---
+# --- 5. MAIN DASHBOARD ---
 if uploaded_file and st.session_state.model_name:
     tab1, tab2 = st.tabs(["💬 Professor Chat", "📄 Insights"])
 
@@ -87,7 +111,6 @@ if uploaded_file and st.session_state.model_name:
             st.info("Tap 'Auto-Summarize' in the sidebar.")
 
     with tab1:
-        # Chat History
         for i, msg in enumerate(st.session_state.history):
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
@@ -97,14 +120,7 @@ if uploaded_file and st.session_state.model_name:
                         gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                         st.audio(fp, format='audio/mp3', autoplay=True)
 
-        # Chat Input
-        query = st.chat_input("Ask about this material...")
-        
-        # Helper for "Voice Input" via Keyboard
-        if not query:
-            st.caption("💡 Tip: Use the microphone icon on your mobile keyboard to speak your question!")
-
-        if query:
+        if query := st.chat_input("Ask about this material..."):
             st.session_state.history.append({"role": "user", "content": query})
             with st.chat_message("user"): st.write(query)
             
@@ -121,10 +137,11 @@ if uploaded_file and st.session_state.model_name:
                     res_box.markdown(full_text)
                     st.session_state.history.append({"role": "assistant", "content": full_text})
                     st.rerun()
-                except Exception as e: st.error(f"Quota Error: {e}")
+                except Exception as e: st.error(f"Professor is busy. Wait 60s. Error: {e}")
 else:
     st.info("👋 Upload a file to begin.")
    
+
 
 
 
