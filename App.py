@@ -5,7 +5,14 @@ from gtts import gTTS
 import io
 import time
 
-# --- 1. AUTH & STABLE MODEL DISCOVERY ---
+# --- 1. PAGE CONFIGURATION (SETTING THE ICON) ---
+st.set_page_config(
+    page_title="Scholar AI Pro", 
+    page_icon="🎓", 
+    layout="wide"
+)
+
+# --- 2. AUTH & STABLE MODEL DISCOVERY ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
@@ -20,9 +27,7 @@ def init_scholar():
         return available[0]
     except: return "models/gemini-1.5-flash"
 
-st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
-
-# --- 2. UTILITIES ---
+# --- 3. UTILITIES ---
 def create_pdf(history):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -40,13 +45,13 @@ def create_pdf(history):
         pdf.ln(5)
     return bytes(pdf.output())
 
-# --- 3. SESSION INITIALIZATION ---
+# --- 4. SESSION INITIALIZATION ---
 if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
 
-# --- 4. SIDEBAR & TOOLS ---
+# --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
     
@@ -67,11 +72,10 @@ with st.sidebar:
                     except Exception as e: st.error(f"Quota Error: {e}")
 
     st.divider()
-    
     st.header("⏱️ Focus Timer")
     t_col1, t_col2 = st.columns(2)
     with t_col1:
-        if st.button("▶️ 25m Focus"): st.toast("Timer started!")
+        if st.button("▶️ 25m Focus"): st.toast("Focus timer started!")
     with t_col2:
         if st.button("⏹️ Reset"): st.toast("Timer reset.")
 
@@ -83,10 +87,10 @@ with st.sidebar:
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
-# --- 5. MAIN CHAT INTERFACE ---
+# --- 6. MAIN CHAT INTERFACE ---
 st.title("🎓 Scholar Pro Research Lab")
 
-# Mode Badge & Topic Suggestions
+# Mode & Topic Suggestions
 if uploaded_file:
     st.markdown(f"🔍 **Currently Analyzing:** `{uploaded_file.name}`")
 else:
@@ -95,16 +99,15 @@ else:
         st.subheader("💡 Need Inspiration? Ask about...")
         s_col1, s_col2, s_col3 = st.columns(3)
         topics = {
-            "🧬 Quantum Biology": "Explain the basics of Quantum Biology and its recent breakthroughs.",
-            "🏛️ Ancient History": "Tell me about a lesser-known civilization from 3000 BCE.",
-            "🌌 Astrophysics": "How do black holes influence the formation of galaxies?"
+            "🧬 Quantum Biology": "Explain the basics of Quantum Biology.",
+            "🏛️ Ancient History": "Tell me about the Bronze Age collapse.",
+            "🌌 Astrophysics": "Explain how Hawking Radiation works."
         }
         cols = [s_col1, s_col2, s_col3]
         for i, (label, prompt) in enumerate(topics.items()):
             if cols[i].button(label):
                 st.session_state.active_prompt = prompt
 
-# Dashboard Tabs
 tab_chat, tab_insights = st.tabs(["💬 Academic Discourse", "📄 Insights"])
 
 with tab_insights:
@@ -113,10 +116,8 @@ with tab_insights:
         st.info(st.session_state.summary)
         st.subheader("❓ Suggested Deep-Dives")
         st.write(st.session_state.faqs)
-    elif uploaded_file:
-        st.info("Tap 'Analyze Document' in the sidebar.")
     else:
-        st.info("Upload a file to unlock automated insights.")
+        st.info("Upload a file or ask a general question to get started.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
@@ -128,10 +129,7 @@ with tab_chat:
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
-    # Hybrid Chat Input
     query = st.chat_input("Enter your question...")
-    
-    # Check if a suggestion was clicked
     if "active_prompt" in st.session_state:
         query = st.session_state.active_prompt
         del st.session_state.active_prompt
@@ -139,7 +137,6 @@ with tab_chat:
     if query:
         st.session_state.history.append({"role": "user", "content": query})
         with st.chat_message("user"): st.write(query)
-        
         with st.chat_message("assistant"):
             res_box = st.empty()
             full_text = ""
@@ -148,7 +145,6 @@ with tab_chat:
                 prompt_parts = [query]
                 if uploaded_file:
                     prompt_parts.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
-                
                 stream = model.generate_content(prompt_parts, stream=True)
                 for chunk in stream:
                     full_text += chunk.text
@@ -156,9 +152,9 @@ with tab_chat:
                 res_box.markdown(full_text)
                 st.session_state.history.append({"role": "assistant", "content": full_text})
                 st.rerun()
-            except Exception as e: 
-                st.error("Professor is busy. Please wait 60s for the free-tier reset.")
+            except Exception as e: st.error("Rate limit hit. Please wait 60s.")
    
+
 
 
 
