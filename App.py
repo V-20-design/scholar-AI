@@ -5,14 +5,14 @@ from gtts import gTTS
 import io
 import time
 
-# --- 1. PAGE CONFIG (THE ICON FIX) ---
+# --- 1. PAGE CONFIG (ICON FIX) ---
 st.set_page_config(
     page_title="Scholar AI Pro", 
     page_icon="🎓", 
     layout="wide"
 )
 
-# --- 2. ROBUST AUTH & MODEL DISCOVERY ---
+# --- 2. AUTH & MODEL DISCOVERY ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
@@ -20,12 +20,9 @@ def init_scholar():
         return None
     genai.configure(api_key=api_key)
     try:
-        # Find the best available Flash model to avoid 404
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        priority = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest"]
-        for p in priority:
-            if p in models: return p
-        return models[0] if models else "models/gemini-1.5-flash"
+        # Priority on 1.5-Flash for highest free-tier limits
+        return "models/gemini-1.5-flash" if "models/gemini-1.5-flash" in models else models[0]
     except:
         return "models/gemini-1.5-flash"
 
@@ -59,17 +56,18 @@ with st.sidebar:
     uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="user_upload")
     
     if uploaded_file:
-        if st.button("✨ Analyze Document"):
-            with st.spinner("Analyzing..."):
-                try:
-                    model = genai.GenerativeModel(st.session_state.model_name)
-                    blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    # Asking for a very short summary to save tokens
-                    res = model.generate_content([blob, "Brief 2-sentence summary."])
-                    st.session_state.summary = res.text
-                    st.rerun()
-                except Exception as e:
-                    st.error("Rate limit hit. Please wait 60s.")
+        st.success(f"Context: {uploaded_file.name}")
+        if not st.session_state.summary:
+            if st.button("✨ Analyze Document"):
+                with st.spinner("Analyzing..."):
+                    try:
+                        model = genai.GenerativeModel(st.session_state.model_name)
+                        blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
+                        res = model.generate_content([blob, "Brief 2-sentence summary."])
+                        st.session_state.summary = res.text
+                        st.rerun()
+                    except Exception as e:
+                        st.error("Rate limit hit. Please wait a moment.")
 
     st.divider()
     st.header("⏱️ Focus Timer")
@@ -81,20 +79,12 @@ with st.sidebar:
     if st.session_state.history:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
-        if st.button("🗑️ Clear This Session", use_container_width=True):
+        if st.button("🗑️ Clear & Reset Quota", use_container_width=True):
             st.session_state.history = []; st.session_state.summary = ""
             st.rerun()
 
-# --- 6. MAIN INTERFACE ---
+# --- 6. MAIN CHAT ---
 st.title("🎓 Scholar Pro Lab")
-
-# SUGGESTIONS
-if not uploaded_file and not st.session_state.history:
-    st.subheader("💡 Suggestions")
-    cols = st.columns(3)
-    if cols[0].button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology."
-    if cols[1].button("🏛️ History"): st.session_state.active_prompt = "Explain the Bronze Age collapse."
-    if cols[2].button("🌌 Space"): st.session_state.active_prompt = "How do black holes work?"
 
 tab_chat, tab_insights = st.tabs(["💬 Chat", "📄 Insights"])
 
@@ -102,24 +92,21 @@ with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
     else:
-        st.write("Insights will appear here after document analysis.")
+        st.write("Upload a file for independent insights.")
 
 with tab_chat:
+    # Display History
     for i, msg in enumerate(st.session_state.history):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             if msg["role"] == "assistant":
-                if st.button("🔊 Read", key=f"voice_{i}"):
+                if st.button("🔊 Read", key=f"v_{i}"):
                     fp = io.BytesIO()
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
     query = st.chat_input("Ask a question...")
     
-    if "active_prompt" in st.session_state:
-        query = st.session_state.active_prompt
-        del st.session_state.active_prompt
-
     if query:
         st.session_state.history.append({"role": "user", "content": query})
         with st.chat_message("user"): st.write(query)
@@ -130,33 +117,32 @@ with tab_chat:
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
                 
-                # --- CRITICAL RATE LIMIT FIX ---
-                # 1. We ONLY send the current question + the file.
-                # 2. We skip sending chat history to minimize token usage.
+                # Payload optimization
                 payload = [query]
                 if uploaded_file:
-                    # Only send file data if absolutely necessary
                     payload.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
                 
+                # Streaming response
                 stream = model.generate_content(payload, stream=True)
                 for chunk in stream:
                     full_text += chunk.text
                     res_box.markdown(full_text + "▌")
                 res_box.markdown(full_text)
                 st.session_state.history.append({"role": "assistant", "content": full_text})
-                st.rerun()
+            
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Limit hit. Waiting 60s for automatic recharge...")
-                    # Manual progress bar for visual feedback
+                    st.error("🚨 Limit Hit! This device is pausing for 60s to recharge.")
+                    # Progress bar for visual feedback
                     wait_bar = st.progress(0)
-                    for percent in range(100):
-                        time.sleep(0.6) # 60 seconds total
-                        wait_bar.progress(percent + 1)
-                    st.success("Recharged! Please try your question again.")
+                    for i in range(100):
+                        time.sleep(0.6) 
+                        wait_bar.progress(i + 1)
+                    st.success("Recharged! Try resending your question.")
                 else:
                     st.error(f"Error: {e}")
    
+
 
 
 
