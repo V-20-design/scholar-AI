@@ -5,14 +5,14 @@ from gtts import gTTS
 import io
 import time
 
-# --- 1. PAGE CONFIGURATION ---
+# --- 1. PAGE CONFIG ---
 st.set_page_config(
     page_title="Scholar AI Pro", 
     page_icon="🎓", 
     layout="wide"
 )
 
-# --- 2. DYNAMIC MODEL RESOLVER (FIXES 404 & 429) ---
+# --- 2. DYNAMIC MODEL DISCOVERY (FIXES 404) ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
@@ -30,10 +30,10 @@ def init_scholar():
         return "models/gemini-1.5-flash"
 
 # --- 3. SESSION INITIALIZATION ---
-if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
+if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 
 # --- 4. UTILITIES ---
 def create_pdf(history):
@@ -56,26 +56,27 @@ def create_pdf(history):
 # --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
+    st.caption(f"Connected to: {st.session_state.model_name}")
     
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="unique_uploader")
+    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="main_upload")
     
     if uploaded_file and not st.session_state.summary:
-        if st.button("✨ Auto-Analyze & FAQs"):
+        if st.button("✨ Analyze & Generate FAQs"):
             with st.spinner("Analyzing..."):
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    # Combined request to reduce "Requests Per Minute" (RPM)
-                    res = model.generate_content([blob, "Summarize in 2 paragraphs and list 3 FAQs."])
+                    # Combined request to save tokens
+                    res = model.generate_content([blob, "Summarize in 2 paragraphs and provide 3 research FAQs."])
                     st.session_state.summary = res.text
                     st.rerun()
                 except Exception as e:
-                    st.error("Rate Limit hit. Please wait 60s.")
+                    st.error("Rate limit hit. Wait 60s.")
 
     st.divider()
     st.header("⏱️ Focus Timer")
     t1, t2 = st.columns(2)
-    if t1.button("▶️ 25m Focus"): st.toast("Timer started!")
+    if t1.button("▶️ 25m Focus"): st.toast("Timer active!")
     if t2.button("⏹️ Reset"): st.toast("Timer reset.")
 
     st.divider()
@@ -86,7 +87,7 @@ with st.sidebar:
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
-# --- 6. MAIN CHAT ---
+# --- 6. MAIN CHAT INTERFACE ---
 st.title("🎓 Scholar Pro Lab")
 
 # INSPIRATION BUTTONS
@@ -102,14 +103,15 @@ tab_chat, tab_insights = st.tabs(["💬 Chat", "📄 Insights & FAQs"])
 with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
-    else: st.write("Upload a file for independent insights.")
+    else:
+        st.write("Upload a file for independent insights.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             if msg["role"] == "assistant":
-                if st.button("🔊 Read Aloud", key=f"voice_{i}"):
+                if st.button("🔊 Read Aloud", key=f"v_{i}"):
                     fp = io.BytesIO()
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
@@ -129,13 +131,11 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                # PAYLOAD PRUNING: We only send the FILE + CURRENT QUERY. 
-                # Sending history is what usually triggers the 429 limit.
-                payload = [query]
-                if uploaded_file:
-                    payload.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
+                # QUOTA SAVER: We send the current query + the lightweight summary.
+                # We DO NOT resend the heavy original file or long history.
+                context_prompt = f"Based on this summary: {st.session_state.summary}\n\nUser Question: {query}"
                 
-                stream = model.generate_content(payload, stream=True)
+                stream = model.generate_content(context_prompt, stream=True)
                 for chunk in stream:
                     full_text += chunk.text
                     res_box.markdown(full_text + "▌")
@@ -144,14 +144,16 @@ with tab_chat:
                 st.rerun()
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Limit Hit! Recharging for 60s...")
-                    progress = st.progress(0)
-                    for i in range(60):
+                    st.error("🚨 Rate Limit Hit! Recharging for 60s...")
+                    wait_bar = st.progress(0)
+                    for p in range(60):
                         time.sleep(1)
-                        progress.progress((i + 1) / 60)
-                    st.success("Recharged! Try resending.")
-                else: st.error(f"Error: {e}")
+                        wait_bar.progress((p+1)/60)
+                    st.success("Recharged! Try again.")
+                else:
+                    st.error(f"Error: {e}")
    
+
 
 
 
