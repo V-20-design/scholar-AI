@@ -5,7 +5,7 @@ from gtts import gTTS
 import io
 import time
 
-# --- 1. PAGE CONFIG (THE ICON FIX) ---
+# --- 1. PAGE CONFIG (ICON FIX) ---
 st.set_page_config(
     page_title="Scholar AI Pro", 
     page_icon="🎓", 
@@ -20,8 +20,7 @@ def init_scholar():
         return None
     genai.configure(api_key=api_key)
     try:
-        available = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Using 1.5 Flash (Highest Free Quota)
+        # Gemini 1.5 Flash is the "Quota King" for free tier users
         return "models/gemini-1.5-flash"
     except: return "models/gemini-1.5-flash"
 
@@ -52,6 +51,7 @@ if "faqs" not in st.session_state: st.session_state.faqs = ""
 # --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
+    
     uploaded_file = st.file_uploader("Upload (Optional)", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'])
     
     if uploaded_file:
@@ -62,17 +62,18 @@ with st.sidebar:
                     try:
                         model = genai.GenerativeModel(st.session_state.model_name)
                         blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                        # Optimized prompt for speed
-                        res = model.generate_content([blob, "Summarize in 2 paragraphs and give 3 FAQs."])
+                        res = model.generate_content([blob, "Summarize in 2 paragraphs and give 3 short FAQs."])
                         st.session_state.summary = res.text
                         st.rerun()
-                    except Exception as e: st.error(f"Quota Hit: {e}")
+                    except Exception as e:
+                        if "429" in str(e): st.error("🛑 Limit Hit! Wait 60s.")
+                        else: st.error(f"Error: {e}")
 
     st.divider()
     st.header("⏱️ Focus Timer")
     t1, t2 = st.columns(2)
     with t1:
-        if st.button("▶️ 25m"): st.toast("Timer started!")
+        if st.button("▶️ 25m Focus"): st.toast("Timer started!")
     with t2:
         if st.button("⏹️ Reset"): st.toast("Timer reset.")
 
@@ -84,25 +85,28 @@ with st.sidebar:
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
-# --- 6. MAIN INTERFACE ---
+# --- 6. MAIN CHAT ---
 st.title("🎓 Scholar Pro Research Lab")
 
 if not uploaded_file:
     st.markdown("🌐 **General Mode**")
     if not st.session_state.history:
         st.subheader("💡 Suggestions")
-        if st.button("🧬 Explain Quantum Biology"): st.session_state.active_prompt = "Explain Quantum Biology."
-        if st.button("🏛️ Ancient History"): st.session_state.active_prompt = "Tell me about the Bronze Age."
+        s_col1, s_col2, s_col3 = st.columns(3)
+        if s_col1.button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology."
+        if s_col2.button("🏛️ Ancient History"): st.session_state.active_prompt = "Tell me about the Bronze Age collapse."
+        if s_col3.button("🌌 Astrophysics"): st.session_state.active_prompt = "How do black holes work?"
 
 tab_chat, tab_insights = st.tabs(["💬 Chat", "📄 Insights"])
 
 with tab_insights:
     if uploaded_file and st.session_state.summary:
         st.info(st.session_state.summary)
-    else: st.write("Upload a file for insights.")
+    else:
+        st.write("Upload a file or ask a general question.")
 
 with tab_chat:
-    # Render Chat (Restoring Read Aloud)
+    # Display Chat History with Voice Feature
     for i, msg in enumerate(st.session_state.history):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
@@ -112,7 +116,9 @@ with tab_chat:
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
-    query = st.chat_input("Enter your question...")
+    query = st.chat_input("Ask the Professor...")
+    
+    # Suggestion trigger
     if "active_prompt" in st.session_state:
         query = st.session_state.active_prompt
         del st.session_state.active_prompt
@@ -126,7 +132,10 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                # QUOTA FIX: Send file + current query ONLY (ignoring history)
+                
+                # QUOTA PROTECTION LOGIC:
+                # We only send the file + current query. 
+                # We DO NOT send the long chat history to stay under the 429 limit.
                 prompt_parts = [query]
                 if uploaded_file:
                     prompt_parts.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
@@ -139,8 +148,18 @@ with tab_chat:
                 st.session_state.history.append({"role": "assistant", "content": full_text})
                 st.rerun()
             except Exception as e:
-                st.error("🛑 Rate limit hit. Please wait 60s.")
+                if "429" in str(e):
+                    st.error("🛑 Rate limit hit. The file is too big or you've asked too many questions today.")
+                    # Automatic countdown timer
+                    progress = st.progress(0)
+                    for i in range(60):
+                        time.sleep(1)
+                        progress.progress((i + 1) / 60)
+                    st.success("Ready! Try again.")
+                else:
+                    st.error(f"Error: {e}")
    
+
 
 
 
