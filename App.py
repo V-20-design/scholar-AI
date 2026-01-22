@@ -15,7 +15,7 @@ def init_scholar():
 
 st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
 
-# --- 2. REPAIR-READY UTILITIES ---
+# --- 2. UTILITIES ---
 def create_pdf(history):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -29,17 +29,17 @@ def create_pdf(history):
         pdf.set_font("Helvetica", 'B', 12)
         pdf.cell(0, 10, txt=f"{role}:", ln=True)
         pdf.set_font("Helvetica", size=11)
-        # Clean text and render
+        # Clean text
         clean_text = entry["content"].encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(w=0, h=8, txt=clean_text, align='L')
         pdf.ln(5)
     
-    # FIX: Explicitly cast to bytes to prevent StreamlitAPIException
     return bytes(pdf.output())
 
 def get_ai_analysis(file_bytes, mime, prompt):
     try:
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        # UPDATED: Using Gemini 2.0 Flash
+        model = genai.GenerativeModel(model_name="gemini-2.0-flash")
         content = [{"mime_type": mime, "data": file_bytes}, prompt]
         response = model.generate_content(content)
         return response.text
@@ -62,7 +62,6 @@ with st.sidebar:
     if st.session_state.history:
         st.divider()
         try:
-            # Generate the bytes correctly
             pdf_data = create_pdf(st.session_state.history)
             st.download_button(
                 label="📥 Download Research Memo",
@@ -83,7 +82,8 @@ if uploaded_file and auth_ready:
     
     # Run Auto-Analysis if empty
     if not st.session_state.summary:
-        with st.spinner("Scholar is analyzing your document..."):
+        with st.spinner("The Scholar is analyzing your document..."):
+            # UPDATED: Using Gemini 2.0 Flash
             st.session_state.summary = get_ai_analysis(f_bytes, uploaded_file.type, 
                 "Summarize this in 3 professional paragraphs for a researcher.")
             st.session_state.faqs = get_ai_analysis(f_bytes, uploaded_file.type, 
@@ -119,7 +119,8 @@ if uploaded_file and auth_ready:
                 with st.chat_message("assistant"):
                     full_text = ""
                     res_box = st.empty()
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    # UPDATED: Using Gemini 2.0 Flash
+                    model = genai.GenerativeModel("gemini-2.0-flash")
                     stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
                     for chunk in stream:
                         full_text += chunk.text
@@ -130,6 +131,7 @@ if uploaded_file and auth_ready:
                 st.rerun()
 else:
     st.info("👋 Welcome. Please upload a Research PDF or Video to begin.")
+
 
 
 
