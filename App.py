@@ -17,12 +17,12 @@ def init_scholar():
         priority = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest"]
         for target in priority:
             if target in available: return target
-        return available[0] if available else "models/gemini-1.5-flash"
+        return available[0]
     except: return "models/gemini-1.5-flash"
 
 st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
 
-# --- 2. THE PRODUCTION ENGINE ---
+# --- 2. UTILITIES ---
 def create_pdf(history):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -50,7 +50,6 @@ st.title("🎓 Scholar Pro: Research Lab")
 
 with st.sidebar:
     st.header("📂 Research Input")
-    # Added Image support for Mobile Camera use
     uploaded_file = st.file_uploader("Upload PDF, Video, or Image", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'])
     
     if uploaded_file:
@@ -61,15 +60,15 @@ with st.sidebar:
                     try:
                         model = genai.GenerativeModel(st.session_state.model_name)
                         blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                        st.session_state.summary = model.generate_content([blob, "Summarize this material in 3 paragraphs."]).text
+                        st.session_state.summary = model.generate_content([blob, "Summarize this in 3 paragraphs."]).text
                         st.session_state.faqs = model.generate_content([blob, "Generate 4 Research FAQs."]).text
                         st.rerun()
-                    except Exception as e: st.error(f"Quota Limit: {e}")
+                    except Exception as e: st.error(f"Quota Error: {e}")
 
     st.divider()
     if st.session_state.history:
         pdf_data = create_pdf(st.session_state.history)
-        st.download_button("📥 Save Research Memo", data=pdf_data, file_name="scholar_memo.pdf", use_container_width=True)
+        st.download_button("📥 Save Memo", data=pdf_data, file_name="scholar_memo.pdf", use_container_width=True)
         if st.button("🗑️ Clear Lab", use_container_width=True):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
@@ -85,7 +84,7 @@ if uploaded_file and st.session_state.model_name:
             st.subheader("❓ Suggested Deep-Dives")
             st.write(st.session_state.faqs)
         else:
-            st.info("Tap 'Auto-Summarize' in the sidebar to extract insights.")
+            st.info("Tap 'Auto-Summarize' in the sidebar.")
 
     with tab1:
         # Chat History
@@ -96,10 +95,16 @@ if uploaded_file and st.session_state.model_name:
                     if st.button(f"🔊 Read Aloud", key=f"v_{i}"):
                         fp = io.BytesIO()
                         gTTS(text=msg["content"], lang='en').write_to_fp(fp)
-                        st.audio(fp, format='audio/mp3')
+                        st.audio(fp, format='audio/mp3', autoplay=True)
 
-        # Mobile-friendly Chat Input
-        if query := st.chat_input("Ask about this material..."):
+        # Chat Input
+        query = st.chat_input("Ask about this material...")
+        
+        # Helper for "Voice Input" via Keyboard
+        if not query:
+            st.caption("💡 Tip: Use the microphone icon on your mobile keyboard to speak your question!")
+
+        if query:
             st.session_state.history.append({"role": "user", "content": query})
             with st.chat_message("user"): st.write(query)
             
@@ -116,10 +121,11 @@ if uploaded_file and st.session_state.model_name:
                     res_box.markdown(full_text)
                     st.session_state.history.append({"role": "assistant", "content": full_text})
                     st.rerun()
-                except Exception as e: st.error(f"Professor is busy (Quota). Wait 60s. Error: {e}")
+                except Exception as e: st.error(f"Quota Error: {e}")
 else:
-    st.info("👋 To begin, upload a document, a photo of your notes, or a lecture video.")
+    st.info("👋 Upload a file to begin.")
    
+
 
 
 
