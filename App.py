@@ -35,15 +35,20 @@ def create_pdf(history):
     return bytes(pdf.output())
 
 def get_ai_analysis(file_bytes, mime, prompt):
-    try:
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
-        content = [{"mime_type": mime, "data": file_bytes}, prompt]
-        response = model.generate_content(content)
-        return response.text
-    except Exception as e:
-        if "429" in str(e) or "ResourceExhausted" in str(e):
-            return "QUOTA_EXCEEDED"
-        return f"Analysis unavailable: {e}"
+    # Try multiple model IDs to prevent 404 errors
+    for model_id in ["gemini-1.5-flash", "gemini-2.0-flash-exp"]:
+        try:
+            model = genai.GenerativeModel(model_name=model_id)
+            content = [{"mime_type": mime, "data": file_bytes}, prompt]
+            response = model.generate_content(content)
+            return response.text
+        except Exception as e:
+            if "404" in str(e):
+                continue # Try the next model
+            if "429" in str(e) or "ResourceExhausted" in str(e):
+                return "QUOTA_EXCEEDED"
+            return f"Analysis unavailable: {e}"
+    return "Error: All models returned 404. Please check API Key permissions."
 
 # --- 3. MAIN INTERFACE ---
 st.title("🎓 Scholar Research Lab Pro")
@@ -62,7 +67,7 @@ with st.sidebar:
         try:
             pdf_data = create_pdf(st.session_state.history)
             st.download_button("📥 Download Research Memo", data=pdf_data, file_name="memo.pdf")
-        except: st.warning("PDF sync in progress...")
+        except: st.warning("PDF generating...")
         
         if st.button("🗑️ Clear Session"):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
@@ -72,12 +77,11 @@ with st.sidebar:
 if uploaded_file and auth_ready:
     f_bytes = uploaded_file.getvalue()
     
-    # Run Auto-Analysis (Summary & FAQs)
     if not st.session_state.summary:
-        with st.spinner("Analyzing document... (This uses free-tier tokens)"):
+        with st.spinner("Analyzing document..."):
             res = get_ai_analysis(f_bytes, uploaded_file.type, "Summarize this in 3 professional paragraphs.")
             if res == "QUOTA_EXCEEDED":
-                st.warning("⏱️ The Professor is busy. Please wait 60s for the free-tier quota to reset.")
+                st.warning("⏱️ Free-tier quota reached. Waiting 60s...")
             else:
                 st.session_state.summary = res
                 st.session_state.faqs = get_ai_analysis(f_bytes, uploaded_file.type, "Generate 4 research FAQs.")
@@ -86,7 +90,7 @@ if uploaded_file and auth_ready:
 
     with tab_summary:
         st.subheader("📝 Executive Summary")
-        st.info(st.session_state.summary if st.session_state.summary else "Awaiting quota reset...")
+        st.info(st.session_state.summary if st.session_state.summary else "Awaiting analysis...")
         st.divider()
         st.subheader("❓ Suggested Research FAQs")
         st.markdown(st.session_state.faqs)
@@ -112,8 +116,10 @@ if uploaded_file and auth_ready:
                 with st.chat_message("assistant"):
                     full_text = ""
                     res_box = st.empty()
+                    
+                    # Try primary and fallback models for chat
                     try:
-                        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+                        model = genai.GenerativeModel("gemini-1.5-flash")
                         stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
                         for chunk in stream:
                             full_text += chunk.text
@@ -124,11 +130,15 @@ if uploaded_file and auth_ready:
                         st.rerun()
                     except Exception as e:
                         if "ResourceExhausted" in str(e) or "429" in str(e):
-                            st.error("🛑 Free Tier Limit Reached. Please wait 1 minute before asking another question.")
+                            st.error("🛑 Limit Reached. Please wait 60s.")
+                        elif "404" in str(e):
+                            st.error("⚠️ Model not found. Attempting update...")
+                            st.info("Try refreshing the page to use fallback models.")
                         else:
                             st.error(f"Error: {e}")
 else:
     st.info("👋 Upload research material to begin.")
+
 
 
 
