@@ -12,18 +12,19 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. CACHED API INITIALIZATION ---
-# This prevents the app from reconnecting to Google on every click (Fixes 404/429)
-@st.cache_resource
-def get_model(api_key):
+# --- 2. AUTH & MODEL ---
+def init_scholar():
+    api_key = st.secrets.get("GOOGLE_API_KEY")
+    if not api_key:
+        st.error("❌ API Key missing!")
+        return None
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel("models/gemini-1.5-flash")
+    return "models/gemini-1.5-flash"
 
 # --- 3. SESSION INITIALIZATION ---
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "summary" not in st.session_state:
-    st.session_state.summary = ""
+if "history" not in st.session_state: st.session_state.history = []
+if "summary" not in st.session_state: st.session_state.summary = ""
+if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 
 # --- 4. UTILITIES ---
 def create_pdf(history):
@@ -43,29 +44,26 @@ def create_pdf(history):
         pdf.ln(5)
     return bytes(pdf.output())
 
-# --- 5. SIDEBAR (INDEPENDENT TOOLS) ---
+# --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
     
-    api_key = st.secrets.get("GOOGLE_API_KEY")
-    if not api_key:
-        st.error("API Key missing!")
-        st.stop()
-    
-    model = get_model(api_key)
-    
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="user_upload")
+    # File Uploader
+    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="unique_upload")
     
     if uploaded_file:
-        if st.button("✨ Analyze Document"):
-            with st.spinner("Processing..."):
-                try:
-                    blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    res = model.generate_content([blob, "Summarize this material in 3 paragraphs and give 3 FAQs."])
-                    st.session_state.summary = res.text
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Quota error: {e}. Please wait 60s.")
+        st.success(f"Context Ready: {uploaded_file.name}")
+        if not st.session_state.summary:
+            if st.button("✨ Analyze Document"):
+                with st.spinner("Analyzing..."):
+                    try:
+                        model = genai.GenerativeModel(st.session_state.model_name)
+                        # We send a light version for the summary
+                        blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
+                        res = model.generate_content([blob, "Provide a very brief 3-sentence summary."])
+                        st.session_state.summary = res.text
+                        st.rerun()
+                    except Exception as e: st.error("Rate limit hit. Wait 60s.")
 
     st.divider()
     st.header("⏱️ Focus Timer")
@@ -78,14 +76,13 @@ with st.sidebar:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
         if st.button("🗑️ Clear This Session", use_container_width=True):
-            st.session_state.history = []
-            st.session_state.summary = ""
+            st.session_state.history = []; st.session_state.summary = ""
             st.rerun()
 
-# --- 6. MAIN INTERFACE ---
-st.title("🎓 Scholar Pro Lab")
+# --- 6. MAIN CHAT ---
+st.title("🎓 Scholar Pro Research Lab")
 
-# SUGGESTIONS
+# Suggestions
 if not uploaded_file and not st.session_state.history:
     st.subheader("💡 Suggestions")
     cols = st.columns(3)
@@ -99,14 +96,14 @@ with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
     else:
-        st.write("Upload a file to see independent insights.")
+        st.write("Upload a file for independent insights.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             if msg["role"] == "assistant":
-                if st.button("🔊 Read", key=f"v_{i}"):
+                if st.button("🔊 Read", key=f"voice_{i}"):
                     fp = io.BytesIO()
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
@@ -125,12 +122,16 @@ with tab_chat:
             res_box = st.empty()
             full_text = ""
             try:
-                # Use ONLY the current query + file to stay under rate limits
-                content_to_send = [query]
-                if uploaded_file:
-                    content_to_send.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
+                model = genai.GenerativeModel(st.session_state.model_name)
                 
-                stream = model.generate_content(content_to_send, stream=True)
+                # FINAL RATE LIMIT FIX:
+                # We do NOT send chat history. We only send the CURRENT query + File.
+                # This keeps the 'tokens per request' as small as possible.
+                payload = [query]
+                if uploaded_file:
+                    payload.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
+                
+                stream = model.generate_content(payload, stream=True)
                 for chunk in stream:
                     full_text += chunk.text
                     res_box.markdown(full_text + "▌")
@@ -138,10 +139,13 @@ with tab_chat:
                 st.session_state.history.append({"role": "assistant", "content": full_text})
                 st.rerun()
             except Exception as e:
-                st.error("🛑 Rate limit! Waiting 60s for recharge...")
-                time.sleep(60)
-                st.rerun()
+                if "429" in str(e):
+                    st.error("🚨 Limit hit. Waiting 60s for automatic recharge...")
+                    time.sleep(60)
+                    st.rerun()
+                else: st.error(f"Error: {e}")
    
+
 
 
 
