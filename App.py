@@ -5,41 +5,34 @@ from gtts import gTTS
 import io
 import time
 
-# --- 1. PAGE CONFIG (ICON FIX) ---
+# --- 1. PAGE CONFIG (THE ICON FIX) ---
 st.set_page_config(
     page_title="Scholar AI Pro", 
     page_icon="🎓", 
     layout="wide"
 )
 
-# --- 2. AUTH & SMART MODEL DISCOVERY (FIXES 404) ---
+# --- 2. ROBUST AUTH & MODEL DISCOVERY ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
         st.error("❌ API Key missing in Secrets!")
         return None
     genai.configure(api_key=api_key)
-    
     try:
-        # Ask the API which models it currently supports
+        # Find the best available Flash model to avoid 404
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Priority list for the best performance/quota
-        priority = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest", "models/gemini-pro"]
+        priority = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest"]
         for p in priority:
-            if p in models:
-                return p
+            if p in models: return p
         return models[0] if models else "models/gemini-1.5-flash"
-    except Exception as e:
-        # Fallback to a standard string if listing fails
+    except:
         return "models/gemini-1.5-flash"
 
 # --- 3. SESSION INITIALIZATION ---
-if "model_name" not in st.session_state:
-    st.session_state.model_name = init_scholar()
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "summary" not in st.session_state:
-    st.session_state.summary = ""
+if "history" not in st.session_state: st.session_state.history = []
+if "summary" not in st.session_state: st.session_state.summary = ""
+if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 
 # --- 4. UTILITIES ---
 def create_pdf(history):
@@ -62,9 +55,8 @@ def create_pdf(history):
 # --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
-    st.caption(f"Connected to: {st.session_state.model_name}")
     
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="session_upload")
+    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="user_upload")
     
     if uploaded_file:
         if st.button("✨ Analyze Document"):
@@ -72,11 +64,12 @@ with st.sidebar:
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    res = model.generate_content([blob, "Briefly summarize this material."])
+                    # Asking for a very short summary to save tokens
+                    res = model.generate_content([blob, "Brief 2-sentence summary."])
                     st.session_state.summary = res.text
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Limit/Error: {e}")
+                    st.error("Rate limit hit. Please wait 60s.")
 
     st.divider()
     st.header("⏱️ Focus Timer")
@@ -89,18 +82,17 @@ with st.sidebar:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
         if st.button("🗑️ Clear This Session", use_container_width=True):
-            st.session_state.history = []
-            st.session_state.summary = ""
+            st.session_state.history = []; st.session_state.summary = ""
             st.rerun()
 
-# --- 6. MAIN CHAT ---
+# --- 6. MAIN INTERFACE ---
 st.title("🎓 Scholar Pro Lab")
 
-# Suggestions
+# SUGGESTIONS
 if not uploaded_file and not st.session_state.history:
     st.subheader("💡 Suggestions")
     cols = st.columns(3)
-    if cols[0].button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology basics."
+    if cols[0].button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology."
     if cols[1].button("🏛️ History"): st.session_state.active_prompt = "Explain the Bronze Age collapse."
     if cols[2].button("🌌 Space"): st.session_state.active_prompt = "How do black holes work?"
 
@@ -110,7 +102,7 @@ with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
     else:
-        st.write("Upload a file for independent insights.")
+        st.write("Insights will appear here after document analysis.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
@@ -137,9 +129,13 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                # To prevent Rate Limits: only send the current question + file
+                
+                # --- CRITICAL RATE LIMIT FIX ---
+                # 1. We ONLY send the current question + the file.
+                # 2. We skip sending chat history to minimize token usage.
                 payload = [query]
                 if uploaded_file:
+                    # Only send file data if absolutely necessary
                     payload.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
                 
                 stream = model.generate_content(payload, stream=True)
@@ -151,12 +147,17 @@ with tab_chat:
                 st.rerun()
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Rate limit hit. Waiting 60s for automatic recharge...")
-                    time.sleep(60)
-                    st.rerun()
+                    st.error("🚨 Limit hit. Waiting 60s for automatic recharge...")
+                    # Manual progress bar for visual feedback
+                    wait_bar = st.progress(0)
+                    for percent in range(100):
+                        time.sleep(0.6) # 60 seconds total
+                        wait_bar.progress(percent + 1)
+                    st.success("Recharged! Please try your question again.")
                 else:
                     st.error(f"Error: {e}")
    
+
 
 
 
