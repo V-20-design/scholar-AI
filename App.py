@@ -9,7 +9,7 @@ import time
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
-        st.error("❌ GOOGLE_API_KEY missing!")
+        st.error("❌ GOOGLE_API_KEY missing from Streamlit Secrets!")
         return False
     genai.configure(api_key=api_key)
     return True
@@ -34,22 +34,13 @@ def create_pdf(history):
         pdf.ln(5)
     return bytes(pdf.output())
 
-# --- 3. SMART MODEL SELECTOR ---
-def get_best_model():
-    """Tries various model strings to avoid the 404 error."""
-    model_candidates = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash-exp"]
-    for m in model_candidates:
-        try:
-            model = genai.GenerativeModel(m)
-            # Short test to see if model exists
-            return model
-        except:
-            continue
-    return genai.GenerativeModel("gemini-1.5-flash") # Default fallback
+# --- 3. CORE AI ENGINE ---
+# Using the specific stable alias to prevent 404 errors
+MODEL_ID = "gemini-1.5-flash-latest" 
 
 def get_ai_analysis(file_bytes, mime, prompt):
     try:
-        model = get_best_model()
+        model = genai.GenerativeModel(model_name=MODEL_ID)
         content = [{"mime_type": mime, "data": file_bytes}, prompt]
         response = model.generate_content(content)
         return response.text
@@ -62,6 +53,7 @@ def get_ai_analysis(file_bytes, mime, prompt):
 st.title("🎓 Scholar Research Lab Pro")
 auth_ready = init_scholar()
 
+# Persistent state management
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
@@ -74,22 +66,27 @@ with st.sidebar:
         st.divider()
         if not st.session_state.summary:
             if st.button("✨ Generate Summary & FAQs"):
-                with st.spinner("Analyzing..."):
+                with st.spinner("Analyzing document..."):
                     res = get_ai_analysis(uploaded_file.getvalue(), uploaded_file.type, "Summarize this in 3 paragraphs.")
                     if res == "QUOTA_ERROR":
-                        st.error("⌛ Quota full! Please wait 60s.")
+                        st.error("⌛ Quota full! Please wait 60s for the free tier to reset.")
                     else:
                         st.session_state.summary = res
-                        st.session_state.faqs = get_ai_analysis(uploaded_file.getvalue(), uploaded_file.type, "Generate 4 FAQs.")
+                        st.session_state.faqs = get_ai_analysis(uploaded_file.getvalue(), uploaded_file.type, "Generate 4 research questions.")
         
     if st.session_state.history:
         st.divider()
-        pdf_data = create_pdf(st.session_state.history)
-        st.download_button("📥 Download Memo", data=pdf_data, file_name="memo.pdf")
+        try:
+            pdf_data = create_pdf(st.session_state.history)
+            st.download_button("📥 Download Memo", data=pdf_data, file_name="memo.pdf")
+        except:
+            st.caption("PDF generating...")
+        
         if st.button("🗑️ Clear Session"):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
+# UI Layout
 if uploaded_file and auth_ready:
     f_bytes = uploaded_file.getvalue()
     tab_chat, tab_summary = st.tabs(["💬 Academic Discourse", "📄 Summary & FAQs"])
@@ -102,15 +99,18 @@ if uploaded_file and auth_ready:
             st.subheader("❓ Suggested Research FAQs")
             st.markdown(st.session_state.faqs)
         else:
-            st.info("Click 'Generate Summary' in the sidebar to begin.")
+            st.info("Click 'Generate Summary' in the sidebar to start analysis.")
 
     with tab_chat:
         col_mat, col_chat = st.columns([1, 1.5], gap="large")
         with col_mat:
-            if "video" in uploaded_file.type: st.video(f_bytes)
-            else: st.success(f"📄 {uploaded_file.name} Loaded")
+            if "video" in uploaded_file.type:
+                st.video(f_bytes)
+            else:
+                st.success(f"📄 {uploaded_file.name} is ready.")
         
         with col_chat:
+            # Display Chat History
             for i, msg in enumerate(st.session_state.history):
                 with st.chat_message(msg["role"]):
                     st.write(msg["content"])
@@ -120,13 +120,14 @@ if uploaded_file and auth_ready:
                             gTTS(text=msg["content"], lang='en').write_to_fp(audio_fp)
                             st.audio(audio_fp, format='audio/mp3')
 
+            # Chat Logic
             if query := st.chat_input("Ask the Professor..."):
                 with st.chat_message("user"): st.write(query)
                 with st.chat_message("assistant"):
                     full_text = ""
                     res_box = st.empty()
                     try:
-                        model = get_best_model()
+                        model = genai.GenerativeModel(MODEL_ID)
                         stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
                         for chunk in stream:
                             full_text += chunk.text
@@ -137,14 +138,13 @@ if uploaded_file and auth_ready:
                         st.rerun()
                     except Exception as e:
                         if "429" in str(e) or "ResourceExhausted" in str(e):
-                            st.error("🛑 Rate limit hit. Waiting 60s...")
-                            time.sleep(60) # Simple wait
-                            st.info("Ready! Please try again.")
+                            st.error("🛑 Rate limit hit. Please wait 1 minute before asking again.")
                         else:
-                            st.error(f"Error: {e}")
+                            st.error(f"Professor Error: {e}")
 else:
-    st.info("👋 Upload research material to begin.")
+    st.info("👋 Welcome. Please upload a PDF or Video in the sidebar to begin.")
    
+
 
 
 
