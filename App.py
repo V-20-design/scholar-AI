@@ -4,7 +4,7 @@ from google.genai import types
 from google.oauth2 import service_account
 import re
 
-# --- 1. AUTHENTICATION (The Strict Multi-4 Filter) ---
+# --- 1. AUTHENTICATION (The Zero-Tolerance Sanitizer) ---
 @st.cache_resource
 def init_scholar():
     try:
@@ -13,26 +13,27 @@ def init_scholar():
             return None
         
         sa_info = dict(st.secrets["gcp_service_account"])
-        
-        # CHARACTER FILTER: Remove anything that isn't valid Base64
         raw_key = sa_info["private_key"]
         
-        # 1. Isolate the middle content
+        # 1. Extract the content between markers
         match = re.search(r"-----BEGIN PRIVATE KEY-----(.*)-----END PRIVATE KEY-----", raw_key, re.DOTALL)
         
         if match:
-            # 2. Keep ONLY valid Base64 characters (A-Z, a-z, 0-9, +, /, =)
-            # This deletes invisible spaces, tabs, and hidden bytes like \xb8
-            middle_raw = match.group(1)
-            clean_body = "".join(re.findall(r"[A-Za-z0-9+/=]", middle_raw))
+            # 2. STRIP EVERYTHING except valid Base64 characters
+            # This kills hidden spaces, tabs, and invisible bytes (\xb8)
+            clean_body = "".join(re.findall(r"[A-Za-z0-9+/=]", match.group(1)))
             
-            # 3. Reconstruct the key perfectly
+            # 3. MATHEMATICAL FIX: If length is 1625, trim the last char to make it 1624
+            # Base64 MUST be a multiple of 4.
+            length = len(clean_body)
+            if length % 4 != 0:
+                clean_body = clean_body[:(length - (length % 4))]
+            
+            # 4. Final Reconstruction
             sa_info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{clean_body}\n-----END PRIVATE KEY-----\n"
         
-        # Create Credentials
         creds = service_account.Credentials.from_service_account_info(sa_info)
         
-        # Initialize Client for Vertex AI (Kenya bypass)
         return genai.Client(
             vertexai=True,
             project=st.secrets["GOOGLE_CLOUD_PROJECT"],
@@ -40,7 +41,6 @@ def init_scholar():
             credentials=creds
         )
     except Exception as e:
-        # This will catch and explain any remaining padding issues
         st.error(f"❌ Connection Failed: {e}")
         return None
 
@@ -64,7 +64,7 @@ def scholar_stream(prompt, file_bytes, mime):
         st.error(f"⚠️ API Error: {str(e)}")
         return None
 
-# --- 3. INTERFACE ---
+# --- 3. MAIN INTERFACE ---
 st.title("🎓 Scholar Research Lab")
 
 if "history" not in st.session_state:
@@ -99,7 +99,7 @@ if uploaded_file and client:
             with st.chat_message("assistant"):
                 res_box = st.empty()
                 full_text = ""
-                with st.spinner("Analyzing..."):
+                with st.spinner("The Scholar is analyzing..."):
                     stream = scholar_stream(user_query, f_bytes, uploaded_file.type)
                     if stream:
                         for chunk in stream:
@@ -112,6 +112,7 @@ if uploaded_file and client:
             st.session_state.history.append({"role": "assistant", "content": full_text})
 else:
     st.info("👋 Upload a file in the sidebar to begin.")
+
 
 
 
