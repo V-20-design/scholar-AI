@@ -5,27 +5,33 @@ from gtts import gTTS
 import io
 import time
 
-# --- 1. AUTHENTICATION & AUTO-MODEL DISCOVERY ---
+# --- 1. AUTHENTICATION & STABLE MODEL PICKER ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
-        st.error("❌ GOOGLE_API_KEY missing from Secrets!")
+        st.error("❌ GOOGLE_API_KEY missing!")
         return None
     
     genai.configure(api_key=api_key)
     
-    # Logic to find the best available model name for your key
     try:
         available_models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Look for the best Flash model available
-        for target in ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest", "models/gemini-2.0-flash-exp"]:
+        
+        # Priority: Stable 1.5 Flash (highest quota) -> Latest Stable -> experimental
+        # We avoid 'gemini-2.0-flash-exp' because your project has a 0-limit cap on it.
+        priority_list = [
+            "models/gemini-1.5-flash", 
+            "models/gemini-1.5-flash-latest",
+            "models/gemini-1.5-pro"
+        ]
+        
+        for target in priority_list:
             if target in available_models:
                 return target
-        # If no specific flash, return the first available one
-        return available_models[0] if available_models else "gemini-1.5-flash"
+        
+        return available_models[0] if available_models else "models/gemini-1.5-flash"
     except Exception as e:
-        st.error(f"Discovery Error: {e}")
-        return "gemini-1.5-flash"
+        return "models/gemini-1.5-flash"
 
 st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
 
@@ -50,7 +56,6 @@ def create_pdf(history):
 # --- 3. MAIN INTERFACE ---
 st.title("🎓 Scholar Research Lab Pro")
 
-# Initialize Session
 if "model_name" not in st.session_state:
     st.session_state.model_name = init_scholar()
 if "history" not in st.session_state: st.session_state.history = []
@@ -61,8 +66,7 @@ with st.sidebar:
     st.header("📂 Research Material")
     uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
     
-    if st.session_state.model_name:
-        st.caption(f"Connected to: `{st.session_state.model_name}`")
+    st.caption(f"Status: Connected to `{st.session_state.model_name.replace('models/', '')}`")
     
     if uploaded_file:
         st.divider()
@@ -71,11 +75,14 @@ with st.sidebar:
                 with st.spinner("Analyzing..."):
                     try:
                         model = genai.GenerativeModel(st.session_state.model_name)
-                        content = [{"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}, "Summarize in 3 paragraphs."]
+                        content = [{"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}, "Summarize in 3 professional paragraphs."]
                         st.session_state.summary = model.generate_content(content).text
-                        st.session_state.faqs = model.generate_content([content[0], "Generate 4 FAQs."]).text
+                        st.session_state.faqs = model.generate_content([content[0], "Generate 4 research FAQs."]).text
                     except Exception as e:
-                        st.error(f"Analysis failed: {e}")
+                        if "429" in str(e):
+                            st.error("⏳ Quota Limit: Please wait 30 seconds.")
+                        else:
+                            st.error(f"Analysis Error: {e}")
         
     if st.session_state.history:
         st.divider()
@@ -128,14 +135,9 @@ if uploaded_file and st.session_state.model_name:
                             full_text += chunk.text
                             res_box.markdown(full_text + "▌")
                         res_box.markdown(full_text)
-                        st.session_state.history.append({"role": "user", "content": query})
-                        st.session_state.history.append({"role": "assistant", "content": full_text})
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Professor Error: {e}")
-else:
-    st.info("👋 Upload a file to begin.")
+                        st.session_state.history.append({"role": "user", "content":
    
+
 
 
 
