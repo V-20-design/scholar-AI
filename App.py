@@ -37,14 +37,12 @@ def create_pdf(history):
 
 def get_ai_analysis(file_bytes, mime, prompt):
     try:
-        # SWITCHED to 1.5-flash for higher free quota
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        # FIXED: Using the stable alias identifier
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash-latest")
         content = [{"mime_type": mime, "data": file_bytes}, prompt]
         response = model.generate_content(content)
         return response.text
     except Exception as e:
-        if "429" in str(e):
-            return "⚠️ Quota exceeded. Please wait a minute and try again."
         return f"Analysis unavailable: {e}"
 
 # --- 3. MAIN INTERFACE ---
@@ -117,8 +115,8 @@ if uploaded_file and auth_ready:
                 with st.chat_message("assistant"):
                     full_text = ""
                     res_box = st.empty()
-                    # SWITCHED to 1.5-flash
-                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    # FIXED: Using stable alias
+                    model = genai.GenerativeModel("gemini-1.5-flash-latest")
                     try:
                         stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
                         for chunk in stream:
@@ -129,12 +127,10 @@ if uploaded_file and auth_ready:
                         st.session_state.history.append({"role": "assistant", "content": full_text})
                         st.rerun()
                     except Exception as e:
-                        if "429" in str(e):
-                            st.error("🛑 Rate limit reached. Please wait 60 seconds.")
-                        else:
-                            st.error(f"Error: {e}")
+                        st.error(f"Professor's Note: {e}")
 else:
     st.info("👋 Welcome. Please upload a Research PDF or Video to begin.")
+
 
 
 
