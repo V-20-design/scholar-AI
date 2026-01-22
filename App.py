@@ -12,47 +12,28 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. AUTH & DYNAMIC MODEL DISCOVERY (FIXES 404) ---
-def get_best_model():
+# --- 2. DYNAMIC MODEL RESOLVER (FIXES 404 & 429) ---
+def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
-        st.error("❌ API Key missing!")
+        st.error("❌ API Key missing in Secrets!")
         return None
-    
     genai.configure(api_key=api_key)
-    
     try:
-        # Get all models that support generating content
-        available_models = [
-            m.name for m in genai.list_models() 
-            if 'generateContent' in m.supported_generation_methods
-        ]
-        
-        # Priority list: Flash 1.5 is the "Quota King"
-        priority_list = [
-            "models/gemini-1.5-flash-latest",
-            "models/gemini-1.5-flash",
-            "models/gemini-1.5-pro-latest",
-            "models/gemini-pro"
-        ]
-        
-        for target in priority_list:
-            if target in available_models:
-                return target
-        
-        return available_models[0] # Fallback to first available
-    except Exception:
-        return "models/gemini-1.5-flash" # Hard fallback
+        # Discover models to avoid 404 errors
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        # Flash 1.5 is the most resilient to rate limits
+        for target in ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest"]:
+            if target in models: return target
+        return models[0] if models else "models/gemini-1.5-flash"
+    except:
+        return "models/gemini-1.5-flash"
 
 # --- 3. SESSION INITIALIZATION ---
-if "model_name" not in st.session_state:
-    st.session_state.model_name = get_best_model()
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "summary" not in st.session_state:
-    st.session_state.summary = ""
-if "faqs" not in st.session_state:
-    st.session_state.faqs = ""
+if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
+if "history" not in st.session_state: st.session_state.history = []
+if "summary" not in st.session_state: st.session_state.summary = ""
+if "faqs" not in st.session_state: st.session_state.faqs = ""
 
 # --- 4. UTILITIES ---
 def create_pdf(history):
@@ -75,9 +56,8 @@ def create_pdf(history):
 # --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
-    st.caption(f"Connected to: {st.session_state.model_name}")
     
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="main_uploader")
+    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="unique_uploader")
     
     if uploaded_file and not st.session_state.summary:
         if st.button("✨ Auto-Analyze & FAQs"):
@@ -85,59 +65,57 @@ with st.sidebar:
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    # Combined prompt to minimize API calls (Rate Limit protection)
-                    res = model.generate_content([blob, "Summarize this in 2 paragraphs, then list 3 research FAQs."])
+                    # Combined request to reduce "Requests Per Minute" (RPM)
+                    res = model.generate_content([blob, "Summarize in 2 paragraphs and list 3 FAQs."])
                     st.session_state.summary = res.text
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Rate Limit: Please wait 60s.")
+                    st.error("Rate Limit hit. Please wait 60s.")
 
     st.divider()
     st.header("⏱️ Focus Timer")
     t1, t2 = st.columns(2)
-    if t1.button("▶️ 25m Focus"): st.toast("Timer Started!")
-    if t2.button("⏹️ Reset"): st.toast("Timer Reset.")
+    if t1.button("▶️ 25m Focus"): st.toast("Timer started!")
+    if t2.button("⏹️ Reset"): st.toast("Timer reset.")
 
     st.divider()
     if st.session_state.history:
         pdf_data = create_pdf(st.session_state.history)
-        st.download_button("📥 Save Memo", data=pdf_data, file_name="scholar_memo.pdf", use_container_width=True)
-        if st.button("🗑️ Clear Lab", use_container_width=True):
+        st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
+        if st.button("🗑️ Clear & Reset Quota", use_container_width=True):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
-# --- 6. MAIN CHAT INTERFACE ---
-st.title("🎓 Scholar Pro Research Lab")
+# --- 6. MAIN CHAT ---
+st.title("🎓 Scholar Pro Lab")
 
-# INSPIRATION SECTION
+# INSPIRATION BUTTONS
 if not st.session_state.history:
-    st.subheader("💡 Need Inspiration?")
-    i_col1, i_col2, i_col3 = st.columns(3)
-    if i_col1.button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology basics."
-    if i_col2.button("🏛️ History"): st.session_state.active_prompt = "What caused the Bronze Age collapse?"
-    if i_col3.button("🌌 Astrophysics"): st.session_state.active_prompt = "How do black holes affect time?"
+    st.subheader("💡 Inspiration")
+    cols = st.columns(3)
+    if cols[0].button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology basics."
+    if cols[1].button("🏛️ History"): st.session_state.active_prompt = "Explain the Bronze Age collapse."
+    if cols[2].button("🌌 Space"): st.session_state.active_prompt = "How do black holes work?"
 
 tab_chat, tab_insights = st.tabs(["💬 Chat", "📄 Insights & FAQs"])
 
 with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
-    else:
-        st.write("Upload a file to see independent insights.")
+    else: st.write("Upload a file for independent insights.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             if msg["role"] == "assistant":
-                if st.button("🔊 Read Aloud", key=f"v_{i}"):
+                if st.button("🔊 Read Aloud", key=f"voice_{i}"):
                     fp = io.BytesIO()
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
-    query = st.chat_input("Ask the Professor...")
+    query = st.chat_input("Ask a question...")
     
-    # Trigger from Inspiration buttons
     if "active_prompt" in st.session_state:
         query = st.session_state.active_prompt
         del st.session_state.active_prompt
@@ -151,7 +129,8 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                # QUOTA PROTECTION: Sending only query + file (no bulky history)
+                # PAYLOAD PRUNING: We only send the FILE + CURRENT QUERY. 
+                # Sending history is what usually triggers the 429 limit.
                 payload = [query]
                 if uploaded_file:
                     payload.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
@@ -165,15 +144,15 @@ with tab_chat:
                 st.rerun()
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Rate Limit! Recharging tokens (60s)...")
-                    wait_bar = st.progress(0)
-                    for p in range(60):
+                    st.error("🚨 Limit Hit! Recharging for 60s...")
+                    progress = st.progress(0)
+                    for i in range(60):
                         time.sleep(1)
-                        wait_bar.progress((p+1)/60)
-                    st.success("Recharged! Please try again.")
-                else:
-                    st.error(f"Error: {e}")
+                        progress.progress((i + 1) / 60)
+                    st.success("Recharged! Try resending.")
+                else: st.error(f"Error: {e}")
    
+
 
 
 
