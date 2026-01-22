@@ -15,7 +15,7 @@ def init_scholar():
 
 st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
 
-# --- 2. UTILITY FUNCTIONS ---
+# --- 2. REPAIR-READY UTILITIES ---
 def create_pdf(history):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -23,15 +23,19 @@ def create_pdf(history):
     pdf.set_font("Helvetica", 'B', 16)
     pdf.cell(0, 10, txt="Scholar AI - Research Memo", ln=True, align='C')
     pdf.ln(10)
+    
     for entry in history:
         role = "Professor" if entry["role"] == "assistant" else "Scholar"
         pdf.set_font("Helvetica", 'B', 12)
         pdf.cell(0, 10, txt=f"{role}:", ln=True)
         pdf.set_font("Helvetica", size=11)
+        # Clean text and render
         clean_text = entry["content"].encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(w=0, h=8, txt=clean_text, align='L')
         pdf.ln(5)
-    return pdf.output()
+    
+    # FIX: Explicitly cast to bytes to prevent StreamlitAPIException
+    return bytes(pdf.output())
 
 def get_ai_analysis(file_bytes, mime, prompt):
     try:
@@ -40,12 +44,13 @@ def get_ai_analysis(file_bytes, mime, prompt):
         response = model.generate_content(content)
         return response.text
     except Exception as e:
-        return f"Error: {e}"
+        return f"Analysis unavailable: {e}"
 
 # --- 3. MAIN INTERFACE ---
 st.title("🎓 Scholar Research Lab Pro")
 auth_ready = init_scholar()
 
+# Initialize session states
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
@@ -54,15 +59,20 @@ with st.sidebar:
     st.header("📂 Research Material")
     uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
     
-    if uploaded_file and auth_ready:
-        if st.button("✨ Re-Analyze Document"):
-            st.session_state.summary = "" # Trigger fresh analysis
-            st.rerun()
-
     if st.session_state.history:
         st.divider()
-        pdf_bytes = create_pdf(st.session_state.history)
-        st.download_button("Download Research Memo (PDF)", data=pdf_bytes, file_name="memo.pdf")
+        try:
+            # Generate the bytes correctly
+            pdf_data = create_pdf(st.session_state.history)
+            st.download_button(
+                label="📥 Download Research Memo",
+                data=pdf_data,
+                file_name="research_memo.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.error(f"PDF Error: {e}")
+        
         if st.button("🗑️ Clear Session"):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
@@ -71,15 +81,14 @@ with st.sidebar:
 if uploaded_file and auth_ready:
     f_bytes = uploaded_file.getvalue()
     
-    # Run Auto-Analysis if not already done
+    # Run Auto-Analysis if empty
     if not st.session_state.summary:
-        with st.spinner("Scholar is preparing your briefing..."):
+        with st.spinner("Scholar is analyzing your document..."):
             st.session_state.summary = get_ai_analysis(f_bytes, uploaded_file.type, 
-                "Provide a professional 3-paragraph summary of this document.")
+                "Summarize this in 3 professional paragraphs for a researcher.")
             st.session_state.faqs = get_ai_analysis(f_bytes, uploaded_file.type, 
-                "Generate 4 deep-dive research questions (FAQs) based on this material.")
+                "Generate 4 FAQs a student might ask about this material.")
 
-    # TABS
     tab_chat, tab_summary = st.tabs(["💬 Academic Discourse", "📄 Summary & FAQs"])
 
     with tab_summary:
@@ -93,7 +102,7 @@ if uploaded_file and auth_ready:
         col_mat, col_chat = st.columns([1, 1.5], gap="large")
         with col_mat:
             if "video" in uploaded_file.type: st.video(f_bytes)
-            else: st.success(f"📄 {uploaded_file.name} Loaded")
+            else: st.success(f"📄 {uploaded_file.name} is analyzed.")
         
         with col_chat:
             for i, msg in enumerate(st.session_state.history):
@@ -110,7 +119,6 @@ if uploaded_file and auth_ready:
                 with st.chat_message("assistant"):
                     full_text = ""
                     res_box = st.empty()
-                    # Streaming chat
                     model = genai.GenerativeModel("gemini-1.5-flash")
                     stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
                     for chunk in stream:
@@ -121,7 +129,8 @@ if uploaded_file and auth_ready:
                 st.session_state.history.append({"role": "assistant", "content": full_text})
                 st.rerun()
 else:
-    st.info("👋 Upload research material to begin.")
+    st.info("👋 Welcome. Please upload a Research PDF or Video to begin.")
+
 
 
 
