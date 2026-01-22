@@ -29,7 +29,6 @@ def create_pdf(history):
         pdf.set_font("Helvetica", 'B', 12)
         pdf.cell(0, 10, txt=f"{role}:", ln=True)
         pdf.set_font("Helvetica", size=11)
-        # Clean text
         clean_text = entry["content"].encode('latin-1', 'replace').decode('latin-1')
         pdf.multi_cell(w=0, h=8, txt=clean_text, align='L')
         pdf.ln(5)
@@ -38,19 +37,20 @@ def create_pdf(history):
 
 def get_ai_analysis(file_bytes, mime, prompt):
     try:
-        # UPDATED: Using Gemini 2.0 Flash
-        model = genai.GenerativeModel(model_name="gemini-2.0-flash")
+        # SWITCHED to 1.5-flash for higher free quota
+        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
         content = [{"mime_type": mime, "data": file_bytes}, prompt]
         response = model.generate_content(content)
         return response.text
     except Exception as e:
+        if "429" in str(e):
+            return "⚠️ Quota exceeded. Please wait a minute and try again."
         return f"Analysis unavailable: {e}"
 
 # --- 3. MAIN INTERFACE ---
 st.title("🎓 Scholar Research Lab Pro")
 auth_ready = init_scholar()
 
-# Initialize session states
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
@@ -80,10 +80,8 @@ with st.sidebar:
 if uploaded_file and auth_ready:
     f_bytes = uploaded_file.getvalue()
     
-    # Run Auto-Analysis if empty
     if not st.session_state.summary:
         with st.spinner("The Scholar is analyzing your document..."):
-            # UPDATED: Using Gemini 2.0 Flash
             st.session_state.summary = get_ai_analysis(f_bytes, uploaded_file.type, 
                 "Summarize this in 3 professional paragraphs for a researcher.")
             st.session_state.faqs = get_ai_analysis(f_bytes, uploaded_file.type, 
@@ -119,18 +117,25 @@ if uploaded_file and auth_ready:
                 with st.chat_message("assistant"):
                     full_text = ""
                     res_box = st.empty()
-                    # UPDATED: Using Gemini 2.0 Flash
-                    model = genai.GenerativeModel("gemini-2.0-flash")
-                    stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
-                    for chunk in stream:
-                        full_text += chunk.text
-                        res_box.markdown(full_text + "▌")
-                    res_box.markdown(full_text)
-                st.session_state.history.append({"role": "user", "content": query})
-                st.session_state.history.append({"role": "assistant", "content": full_text})
-                st.rerun()
+                    # SWITCHED to 1.5-flash
+                    model = genai.GenerativeModel("gemini-1.5-flash")
+                    try:
+                        stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
+                        for chunk in stream:
+                            full_text += chunk.text
+                            res_box.markdown(full_text + "▌")
+                        res_box.markdown(full_text)
+                        st.session_state.history.append({"role": "user", "content": query})
+                        st.session_state.history.append({"role": "assistant", "content": full_text})
+                        st.rerun()
+                    except Exception as e:
+                        if "429" in str(e):
+                            st.error("🛑 Rate limit reached. Please wait 60 seconds.")
+                        else:
+                            st.error(f"Error: {e}")
 else:
     st.info("👋 Welcome. Please upload a Research PDF or Video to begin.")
+
 
 
 
