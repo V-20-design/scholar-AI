@@ -50,7 +50,6 @@ if "faqs" not in st.session_state: st.session_state.faqs = ""
 with st.sidebar:
     st.title("🎓 Scholar Tools")
     
-    # Mode Toggle / File Upload
     st.header("📂 Research Material")
     uploaded_file = st.file_uploader("Upload (Optional)", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'])
     
@@ -66,12 +65,9 @@ with st.sidebar:
                         st.session_state.faqs = model.generate_content([blob, "Generate 4 research questions."]).text
                         st.rerun()
                     except Exception as e: st.error(f"Quota Error: {e}")
-    else:
-        st.info("💡 No file? I'm in **General Research Mode**.")
 
     st.divider()
     
-    # Focus Timer
     st.header("⏱️ Focus Timer")
     t_col1, t_col2 = st.columns(2)
     with t_col1:
@@ -90,11 +86,23 @@ with st.sidebar:
 # --- 5. MAIN CHAT INTERFACE ---
 st.title("🎓 Scholar Pro Research Lab")
 
-# Mode Badge
+# Mode Badge & Topic Suggestions
 if uploaded_file:
-    st.markdown("🔍 **Currently Analyzing:** " + uploaded_file.name)
+    st.markdown(f"🔍 **Currently Analyzing:** `{uploaded_file.name}`")
 else:
-    st.markdown("🌐 **General Knowledge Mode** (Ask me anything!)")
+    st.markdown("🌐 **General Knowledge Mode**")
+    if not st.session_state.history:
+        st.subheader("💡 Need Inspiration? Ask about...")
+        s_col1, s_col2, s_col3 = st.columns(3)
+        topics = {
+            "🧬 Quantum Biology": "Explain the basics of Quantum Biology and its recent breakthroughs.",
+            "🏛️ Ancient History": "Tell me about a lesser-known civilization from 3000 BCE.",
+            "🌌 Astrophysics": "How do black holes influence the formation of galaxies?"
+        }
+        cols = [s_col1, s_col2, s_col3]
+        for i, (label, prompt) in enumerate(topics.items()):
+            if cols[i].button(label):
+                st.session_state.active_prompt = prompt
 
 # Dashboard Tabs
 tab_chat, tab_insights = st.tabs(["💬 Academic Discourse", "📄 Insights"])
@@ -106,12 +114,11 @@ with tab_insights:
         st.subheader("❓ Suggested Deep-Dives")
         st.write(st.session_state.faqs)
     elif uploaded_file:
-        st.info("Tap 'Analyze Document' in the sidebar to generate insights.")
+        st.info("Tap 'Analyze Document' in the sidebar.")
     else:
-        st.info("Upload a file to unlock automated document insights.")
+        st.info("Upload a file to unlock automated insights.")
 
 with tab_chat:
-    # Display History
     for i, msg in enumerate(st.session_state.history):
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
@@ -122,7 +129,14 @@ with tab_chat:
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
     # Hybrid Chat Input
-    if query := st.chat_input("Enter your question..."):
+    query = st.chat_input("Enter your question...")
+    
+    # Check if a suggestion was clicked
+    if "active_prompt" in st.session_state:
+        query = st.session_state.active_prompt
+        del st.session_state.active_prompt
+
+    if query:
         st.session_state.history.append({"role": "user", "content": query})
         with st.chat_message("user"): st.write(query)
         
@@ -131,24 +145,21 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                
-                # ROUTING LOGIC: File Context vs General Knowledge
+                prompt_parts = [query]
                 if uploaded_file:
-                    prompt_parts = [{"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}, query]
-                else:
-                    prompt_parts = [query]
+                    prompt_parts.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
                 
                 stream = model.generate_content(prompt_parts, stream=True)
                 for chunk in stream:
                     full_text += chunk.text
                     res_box.markdown(full_text + "▌")
                 res_box.markdown(full_text)
-                
                 st.session_state.history.append({"role": "assistant", "content": full_text})
                 st.rerun()
             except Exception as e: 
                 st.error("Professor is busy. Please wait 60s for the free-tier reset.")
    
+
 
 
 
