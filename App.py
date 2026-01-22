@@ -4,7 +4,7 @@ from google.genai import types
 from google.oauth2 import service_account
 import re
 
-# --- 1. AUTHENTICATION (The Zero-Tolerance Sanitizer) ---
+# --- 1. AUTHENTICATION (The Scope-Corrected Version) ---
 @st.cache_resource
 def init_scholar():
     try:
@@ -15,25 +15,25 @@ def init_scholar():
         sa_info = dict(st.secrets["gcp_service_account"])
         raw_key = sa_info["private_key"]
         
-        # 1. Extract the content between markers
+        # 1. Final Sanitization (Ensuring Multi-4 for Base64)
         match = re.search(r"-----BEGIN PRIVATE KEY-----(.*)-----END PRIVATE KEY-----", raw_key, re.DOTALL)
-        
         if match:
-            # 2. STRIP EVERYTHING except valid Base64 characters
-            # This kills hidden spaces, tabs, and invisible bytes (\xb8)
             clean_body = "".join(re.findall(r"[A-Za-z0-9+/=]", match.group(1)))
-            
-            # 3. MATHEMATICAL FIX: If length is 1625, trim the last char to make it 1624
-            # Base64 MUST be a multiple of 4.
             length = len(clean_body)
             if length % 4 != 0:
                 clean_body = clean_body[:(length - (length % 4))]
-            
-            # 4. Final Reconstruction
             sa_info["private_key"] = f"-----BEGIN PRIVATE KEY-----\n{clean_body}\n-----END PRIVATE KEY-----\n"
         
-        creds = service_account.Credentials.from_service_account_info(sa_info)
+        # 2. FIX: Explicitly define the OAuth Scopes
+        # This prevents the 'invalid_scope' error by requesting full platform access
+        scopes = ['https://www.googleapis.com/auth/cloud-platform']
         
+        creds = service_account.Credentials.from_service_account_info(
+            sa_info, 
+            scopes=scopes
+        )
+        
+        # 3. Initialize Client (Vertex AI Mode)
         return genai.Client(
             vertexai=True,
             project=st.secrets["GOOGLE_CLOUD_PROJECT"],
@@ -56,12 +56,13 @@ def scholar_stream(prompt, file_bytes, mime):
             model="gemini-1.5-flash",
             contents=[file_part, prompt],
             config=types.GenerateContentConfig(
-                system_instruction="You are 'The Scholar,' an elite research professor.",
+                system_instruction="You are 'The Scholar,' an elite research professor. Use academic language.",
                 temperature=0.1
             )
         )
     except Exception as e:
-        st.error(f"⚠️ API Error: {str(e)}")
+        # Detailed error reporting for the API
+        st.error(f"⚠️ Scholar Error: {str(e)}")
         return None
 
 # --- 3. MAIN INTERFACE ---
@@ -111,7 +112,8 @@ if uploaded_file and client:
             st.session_state.history.append({"role": "user", "content": user_query})
             st.session_state.history.append({"role": "assistant", "content": full_text})
 else:
-    st.info("👋 Upload a file in the sidebar to begin.")
+    st.info("👋 Upload a file in the sidebar to begin your research session.")
+
 
 
 
