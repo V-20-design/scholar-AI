@@ -12,19 +12,34 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. AUTH & MODEL ---
+# --- 2. AUTH & SMART MODEL DISCOVERY (FIXES 404) ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
-        st.error("❌ API Key missing!")
+        st.error("❌ API Key missing in Secrets!")
         return None
     genai.configure(api_key=api_key)
-    return "models/gemini-1.5-flash"
+    
+    try:
+        # Ask the API which models it currently supports
+        models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+        # Priority list for the best performance/quota
+        priority = ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest", "models/gemini-pro"]
+        for p in priority:
+            if p in models:
+                return p
+        return models[0] if models else "models/gemini-1.5-flash"
+    except Exception as e:
+        # Fallback to a standard string if listing fails
+        return "models/gemini-1.5-flash"
 
 # --- 3. SESSION INITIALIZATION ---
-if "history" not in st.session_state: st.session_state.history = []
-if "summary" not in st.session_state: st.session_state.summary = ""
-if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
+if "model_name" not in st.session_state:
+    st.session_state.model_name = init_scholar()
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "summary" not in st.session_state:
+    st.session_state.summary = ""
 
 # --- 4. UTILITIES ---
 def create_pdf(history):
@@ -47,23 +62,21 @@ def create_pdf(history):
 # --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
+    st.caption(f"Connected to: {st.session_state.model_name}")
     
-    # File Uploader
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="unique_upload")
+    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="session_upload")
     
     if uploaded_file:
-        st.success(f"Context Ready: {uploaded_file.name}")
-        if not st.session_state.summary:
-            if st.button("✨ Analyze Document"):
-                with st.spinner("Analyzing..."):
-                    try:
-                        model = genai.GenerativeModel(st.session_state.model_name)
-                        # We send a light version for the summary
-                        blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                        res = model.generate_content([blob, "Provide a very brief 3-sentence summary."])
-                        st.session_state.summary = res.text
-                        st.rerun()
-                    except Exception as e: st.error("Rate limit hit. Wait 60s.")
+        if st.button("✨ Analyze Document"):
+            with st.spinner("Analyzing..."):
+                try:
+                    model = genai.GenerativeModel(st.session_state.model_name)
+                    blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
+                    res = model.generate_content([blob, "Briefly summarize this material."])
+                    st.session_state.summary = res.text
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Limit/Error: {e}")
 
     st.divider()
     st.header("⏱️ Focus Timer")
@@ -76,11 +89,12 @@ with st.sidebar:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
         if st.button("🗑️ Clear This Session", use_container_width=True):
-            st.session_state.history = []; st.session_state.summary = ""
+            st.session_state.history = []
+            st.session_state.summary = ""
             st.rerun()
 
 # --- 6. MAIN CHAT ---
-st.title("🎓 Scholar Pro Research Lab")
+st.title("🎓 Scholar Pro Lab")
 
 # Suggestions
 if not uploaded_file and not st.session_state.history:
@@ -123,10 +137,7 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                
-                # FINAL RATE LIMIT FIX:
-                # We do NOT send chat history. We only send the CURRENT query + File.
-                # This keeps the 'tokens per request' as small as possible.
+                # To prevent Rate Limits: only send the current question + file
                 payload = [query]
                 if uploaded_file:
                     payload.insert(0, {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()})
@@ -140,11 +151,13 @@ with tab_chat:
                 st.rerun()
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Limit hit. Waiting 60s for automatic recharge...")
+                    st.error("🚨 Rate limit hit. Waiting 60s for automatic recharge...")
                     time.sleep(60)
                     st.rerun()
-                else: st.error(f"Error: {e}")
+                else:
+                    st.error(f"Error: {e}")
    
+
 
 
 
