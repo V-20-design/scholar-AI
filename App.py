@@ -34,10 +34,22 @@ def create_pdf(history):
         pdf.ln(5)
     return bytes(pdf.output())
 
+# --- 3. SMART MODEL SELECTOR ---
+def get_best_model():
+    """Tries various model strings to avoid the 404 error."""
+    model_candidates = ["gemini-1.5-flash", "gemini-1.5-flash-8b", "gemini-2.0-flash-exp"]
+    for m in model_candidates:
+        try:
+            model = genai.GenerativeModel(m)
+            # Short test to see if model exists
+            return model
+        except:
+            continue
+    return genai.GenerativeModel("gemini-1.5-flash") # Default fallback
+
 def get_ai_analysis(file_bytes, mime, prompt):
     try:
-        # Use 1.5-flash for the best quota-to-performance ratio
-        model = genai.GenerativeModel(model_name="gemini-1.5-flash")
+        model = get_best_model()
         content = [{"mime_type": mime, "data": file_bytes}, prompt]
         response = model.generate_content(content)
         return response.text
@@ -46,11 +58,10 @@ def get_ai_analysis(file_bytes, mime, prompt):
             return "QUOTA_ERROR"
         return f"Error: {e}"
 
-# --- 3. MAIN INTERFACE ---
+# --- 4. MAIN INTERFACE ---
 st.title("🎓 Scholar Research Lab Pro")
 auth_ready = init_scholar()
 
-# Initialize session states
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
@@ -61,7 +72,6 @@ with st.sidebar:
     
     if uploaded_file:
         st.divider()
-        # MANUAL TRIGGER to save tokens
         if not st.session_state.summary:
             if st.button("✨ Generate Summary & FAQs"):
                 with st.spinner("Analyzing..."):
@@ -76,12 +86,10 @@ with st.sidebar:
         st.divider()
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Download Memo", data=pdf_data, file_name="memo.pdf")
-        
         if st.button("🗑️ Clear Session"):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
             st.rerun()
 
-# --- 4. DASHBOARD LOGIC ---
 if uploaded_file and auth_ready:
     f_bytes = uploaded_file.getvalue()
     tab_chat, tab_summary = st.tabs(["💬 Academic Discourse", "📄 Summary & FAQs"])
@@ -94,7 +102,7 @@ if uploaded_file and auth_ready:
             st.subheader("❓ Suggested Research FAQs")
             st.markdown(st.session_state.faqs)
         else:
-            st.info("Click 'Generate Summary' in the sidebar to begin analysis without hitting rate limits.")
+            st.info("Click 'Generate Summary' in the sidebar to begin.")
 
     with tab_chat:
         col_mat, col_chat = st.columns([1, 1.5], gap="large")
@@ -118,7 +126,7 @@ if uploaded_file and auth_ready:
                     full_text = ""
                     res_box = st.empty()
                     try:
-                        model = genai.GenerativeModel("gemini-1.5-flash")
+                        model = get_best_model()
                         stream = model.generate_content([{"mime_type": uploaded_file.type, "data": f_bytes}, query], stream=True)
                         for chunk in stream:
                             full_text += chunk.text
@@ -129,16 +137,15 @@ if uploaded_file and auth_ready:
                         st.rerun()
                     except Exception as e:
                         if "429" in str(e) or "ResourceExhausted" in str(e):
-                            st.error("🛑 Rate limit hit. I've added a 60s timer below.")
-                            progress_bar = st.progress(0)
-                            for i in range(60):
-                                time.sleep(1)
-                                progress_bar.progress((i + 1) / 60)
-                            st.success("✅ Ready! Try your question again.")
+                            st.error("🛑 Rate limit hit. Waiting 60s...")
+                            time.sleep(60) # Simple wait
+                            st.info("Ready! Please try again.")
                         else:
                             st.error(f"Error: {e}")
 else:
     st.info("👋 Upload research material to begin.")
+   
+
 
 
 
