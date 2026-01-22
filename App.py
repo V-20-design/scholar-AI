@@ -8,40 +8,53 @@ import io
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
-        st.error("❌ GOOGLE_API_KEY missing!")
+        st.error("❌ GOOGLE_API_KEY missing from Secrets!")
         return False
     genai.configure(api_key=api_key)
     return True
 
 st.set_page_config(page_title="Scholar AI Pro", layout="wide", page_icon="🎓")
 
-# --- 2. UTILITY: PDF GENERATOR ---
+# --- 2. FIXED PDF GENERATOR ---
 def create_pdf(history):
     pdf = FPDF()
+    pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt="Scholar AI - Research Memo", ln=True, align='C')
-    pdf.set_font("Arial", size=12)
+    
+    # Title
+    pdf.set_font("Helvetica", 'B', 16)
+    pdf.cell(0, 10, txt="Scholar AI - Research Memo", ln=True, align='C')
     pdf.ln(10)
     
     for entry in history:
         role = "Professor" if entry["role"] == "assistant" else "Scholar"
-        pdf.set_font("Arial", 'B', 12)
-        pdf.multi_cell(0, 10, txt=f"{role}:")
-        pdf.set_font("Arial", size=11)
-        # Replacing characters that Arial doesn't like
+        
+        # Header for the speaker
+        pdf.set_font("Helvetica", 'B', 12)
+        pdf.set_text_color(100, 100, 100) if role == "Scholar" else pdf.set_text_color(0, 51, 102)
+        pdf.cell(0, 10, txt=f"{role}:", ln=True)
+        
+        # Reset color and set font for body
+        pdf.set_text_color(0, 0, 0)
+        pdf.set_font("Helvetica", size=11)
+        
+        # FIX: Clean text of non-Latin1 characters and use Effective Page Width (epw)
         clean_text = entry["content"].encode('latin-1', 'replace').decode('latin-1')
-        pdf.multi_cell(0, 8, txt=clean_text)
+        
+        # Use multicell with 'pdf.epw' to ensure it never exceeds page width
+        pdf.multi_cell(w=0, h=8, txt=clean_text, align='L')
         pdf.ln(5)
         
-    return pdf.output(dest='S').encode('latin-1')
+    # Return as bytes
+    return pdf.output()
 
 # --- 3. THE RESEARCH ENGINE ---
 def scholar_stream(prompt, file_bytes, mime):
     try:
+        # Using 1.5 Flash for the free tier
         model = genai.GenerativeModel(
-            model_name="gemini-flash-latest", # Switch to "gemini-2.0-flash" if 404 occurs
-            system_instruction="You are 'The Scholar,' an elite professor. Be concise but rigorous."
+            model_name="gemini-1.5-flash", 
+            system_instruction="You are 'The Scholar,' an elite research professor. Use academic language."
         )
         content = [{"mime_type": mime, "data": file_bytes}, prompt]
         return model.generate_content(content, stream=True)
@@ -56,7 +69,7 @@ auth_ready = init_scholar()
 if "history" not in st.session_state:
     st.session_state.history = []
 
-# SIDEBAR: Tools and Stats
+# SIDEBAR: Tools
 with st.sidebar:
     st.header("📂 Research Tools")
     uploaded_file = st.file_uploader("Upload PDF or Video", type=['pdf', 'mp4'])
@@ -64,19 +77,21 @@ with st.sidebar:
     if st.session_state.history:
         st.divider()
         st.subheader("📝 Export Lab Notes")
-        pdf_data = create_pdf(st.session_state.history)
-        st.download_button(
-            label="Download Research Memo (PDF)",
-            data=pdf_data,
-            file_name="research_memo.pdf",
-            mime="application/pdf"
-        )
+        try:
+            pdf_bytes = create_pdf(st.session_state.history)
+            st.download_button(
+                label="Download Research Memo (PDF)",
+                data=pdf_bytes,
+                file_name="research_memo.pdf",
+                mime="application/pdf"
+            )
+        except Exception as e:
+            st.warning("Could not generate PDF yet. Continue chatting...")
         
         if st.button("🗑️ Clear Lab Notes"):
             st.session_state.history = []
             st.rerun()
 
-    # Stats Dashboard
     st.divider()
     st.metric(label="Queries This Session", value=len([m for m in st.session_state.history if m["role"]=="user"]))
 
@@ -90,16 +105,14 @@ if uploaded_file and auth_ready:
         if "video" in uploaded_file.type:
             st.video(file_bytes)
         else:
-            st.success(f"📄 {uploaded_file.name} Analyzed")
+            st.success(f"📄 {uploaded_file.name} Loaded")
 
     with col2:
         st.subheader("Academic Discourse")
         
-        # Display Chat
         for i, msg in enumerate(st.session_state.history):
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
-                # Feature: Play Voice for last assistant message
                 if msg["role"] == "assistant" and i == len(st.session_state.history) - 1:
                     if st.button("🔊 Read Aloud"):
                         tts = gTTS(text=msg["content"], lang='en')
@@ -107,7 +120,6 @@ if uploaded_file and auth_ready:
                         tts.write_to_fp(audio_fp)
                         st.audio(audio_fp, format='audio/mp3')
 
-        # Chat Input
         if user_query := st.chat_input("Ask the Professor..."):
             with st.chat_message("user"):
                 st.write(user_query)
@@ -125,9 +137,9 @@ if uploaded_file and auth_ready:
                 
             st.session_state.history.append({"role": "user", "content": user_query})
             st.session_state.history.append({"role": "assistant", "content": full_text})
-            st.rerun() # Refresh to show the "Read Aloud" button
+            st.rerun() 
 else:
-    st.info("👋 Upload research material to begin your session.")
+    st.info("👋 Upload research material to begin.")
 
 
 
