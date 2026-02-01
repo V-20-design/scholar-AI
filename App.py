@@ -4,6 +4,7 @@ from fpdf import FPDF
 from gtts import gTTS
 import io
 import time
+import collections
 
 # --- 1. PAGE CONFIG ---
 st.set_page_config(
@@ -12,7 +13,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. DYNAMIC MODEL DISCOVERY (FIXES 404) ---
+# --- 2. DYNAMIC MODEL DISCOVERY ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
@@ -20,9 +21,7 @@ def init_scholar():
         return None
     genai.configure(api_key=api_key)
     try:
-        # Discover models to avoid 404 errors
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Flash 1.5 is the most resilient to rate limits
         for target in ["models/gemini-1.5-flash", "models/gemini-1.5-flash-latest"]:
             if target in models: return target
         return models[0] if models else "models/gemini-1.5-flash"
@@ -34,6 +33,8 @@ if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
 if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
+# NEW: Track interests for personalized inspirations
+if "interests" not in st.session_state: st.session_state.interests = collections.Counter()
 
 # --- 4. UTILITIES ---
 def create_pdf(history):
@@ -53,12 +54,19 @@ def create_pdf(history):
         pdf.ln(5)
     return bytes(pdf.output())
 
+def update_interests(text):
+    # Simple keyword tracking for personalization
+    keywords = ["science", "history", "math", "art", "space", "bio", "tech", "physics", "coding"]
+    for word in keywords:
+        if word in text.lower():
+            st.session_state.interests[word] += 1
+
 # --- 5. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
     st.caption(f"Connected to: {st.session_state.model_name}")
     
-    uploaded_file = st.file_uploader("Upload Material", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="main_upload")
+    uploaded_file = st.file_uploader("Upload Material (Optional)", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="main_upload")
     
     if uploaded_file and not st.session_state.summary:
         if st.button("✨ Analyze & Generate FAQs"):
@@ -66,7 +74,6 @@ with st.sidebar:
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    # Combined request to save tokens
                     res = model.generate_content([blob, "Summarize in 2 paragraphs and provide 3 research FAQs."])
                     st.session_state.summary = res.text
                     st.rerun()
@@ -84,19 +91,27 @@ with st.sidebar:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
         if st.button("🗑️ Clear & Reset Quota", use_container_width=True):
-            st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""
+            st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""; st.session_state.interests = collections.Counter()
             st.rerun()
 
 # --- 6. MAIN CHAT INTERFACE ---
 st.title("🎓 Scholar Pro Lab")
 
-# INSPIRATION BUTTONS
-if not st.session_state.history:
-    st.subheader("💡 Inspiration")
-    cols = st.columns(3)
-    if cols[0].button("🧬 Quantum Bio"): st.session_state.active_prompt = "Explain Quantum Biology basics."
-    if cols[1].button("🏛️ History"): st.session_state.active_prompt = "Explain the Bronze Age collapse."
-    if cols[2].button("🌌 Space"): st.session_state.active_prompt = "How do black holes work?"
+# DYNAMIC PERSONALIZED INSPIRATION
+st.subheader("💡 Inspiration")
+# Default inspirations
+suggestions = [("🧬 Quantum Bio", "Quantum Biology basics"), ("🏛️ History", "Bronze Age collapse"), ("🌌 Space", "Black holes")]
+
+# If user has specific interests, swap top suggestion
+top_interest = st.session_state.interests.most_common(1)
+if top_interest:
+    interest_word = top_interest[0][0].capitalize()
+    suggestions[0] = (f"🌟 For You: {interest_word}", f"Tell me something advanced about {interest_word}")
+
+cols = st.columns(3)
+for idx, (label, prompt) in enumerate(suggestions):
+    if cols[idx].button(label):
+        st.session_state.active_prompt = prompt
 
 tab_chat, tab_insights = st.tabs(["💬 Chat", "📄 Insights & FAQs"])
 
@@ -104,7 +119,7 @@ with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
     else:
-        st.write("Upload a file for independent insights.")
+        st.write("Upload a file for document-specific insights. Otherwise, use the chat for any topic!")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
@@ -116,13 +131,14 @@ with tab_chat:
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
-    query = st.chat_input("Ask a question...")
+    query = st.chat_input("Ask anything (with or without a file)...")
     
     if "active_prompt" in st.session_state:
         query = st.session_state.active_prompt
         del st.session_state.active_prompt
 
     if query:
+        update_interests(query)
         st.session_state.history.append({"role": "user", "content": query})
         with st.chat_message("user"): st.write(query)
         
@@ -131,9 +147,12 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                # QUOTA SAVER: We send the current query + the lightweight summary.
-                # We DO NOT resend the heavy original file or long history.
-                context_prompt = f"Based on this summary: {st.session_state.summary}\n\nUser Question: {query}"
+                
+                # REVISED LOGIC: Universal Answering
+                if st.session_state.summary:
+                    context_prompt = f"Context: {st.session_state.summary}\n\nUser Question: {query}"
+                else:
+                    context_prompt = query # Standard AI answering
                 
                 stream = model.generate_content(context_prompt, stream=True)
                 for chunk in stream:
@@ -153,6 +172,7 @@ with tab_chat:
                 else:
                     st.error(f"Error: {e}")
    
+
 
 
 
