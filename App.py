@@ -6,14 +6,42 @@ import io
 import time
 import collections
 
-# --- 1. PAGE CONFIG ---
+# --- 1. PAGE CONFIG (Sets the Icon for Home Screen) ---
 st.set_page_config(
     page_title="Scholar AI Pro", 
     page_icon="🎓", 
     layout="wide"
 )
 
-# --- 2. DYNAMIC MODEL DISCOVERY ---
+# --- 2. CUSTOM CSS (Splash Screen & Styling) ---
+st.markdown("""
+    <style>
+    /* Splash Screen Animation */
+    #splash-screen {
+        position: fixed;
+        top: 0; left: 0; width: 100%; height: 100%;
+        background-color: #0E1117;
+        display: flex; flex-direction: column;
+        justify-content: center; align-items: center;
+        z-index: 9999;
+        animation: fadeout 3s forwards;
+    }
+    @keyframes fadeout {
+        0% { opacity: 1; visibility: visible; }
+        80% { opacity: 1; }
+        100% { opacity: 0; visibility: hidden; }
+    }
+    .splash-logo { font-size: 80px; margin-bottom: 20px; }
+    .splash-text { color: white; font-family: sans-serif; font-size: 24px; font-weight: bold; }
+    </style>
+    
+    <div id="splash-screen">
+        <div class="splash-logo">🎓</div>
+        <div class="splash-text">Scholar AI Pro</div>
+    </div>
+""", unsafe_allow_html=True)
+
+# --- 3. DYNAMIC MODEL DISCOVERY ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
@@ -28,15 +56,14 @@ def init_scholar():
     except:
         return "models/gemini-1.5-flash"
 
-# --- 3. SESSION INITIALIZATION ---
+# --- 4. SESSION INITIALIZATION ---
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
 if "faqs" not in st.session_state: st.session_state.faqs = ""
 if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
-# NEW: Track interests for personalized inspirations
 if "interests" not in st.session_state: st.session_state.interests = collections.Counter()
 
-# --- 4. UTILITIES ---
+# --- 5. UTILITIES ---
 def create_pdf(history):
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
@@ -55,13 +82,12 @@ def create_pdf(history):
     return bytes(pdf.output())
 
 def update_interests(text):
-    # Simple keyword tracking for personalization
     keywords = ["science", "history", "math", "art", "space", "bio", "tech", "physics", "coding"]
     for word in keywords:
         if word in text.lower():
             st.session_state.interests[word] += 1
 
-# --- 5. SIDEBAR TOOLS ---
+# --- 6. SIDEBAR TOOLS ---
 with st.sidebar:
     st.title("🎓 Scholar Tools")
     st.caption(f"Connected to: {st.session_state.model_name}")
@@ -94,15 +120,12 @@ with st.sidebar:
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""; st.session_state.interests = collections.Counter()
             st.rerun()
 
-# --- 6. MAIN CHAT INTERFACE ---
+# --- 7. MAIN CHAT INTERFACE ---
 st.title("🎓 Scholar Pro Lab")
 
 # DYNAMIC PERSONALIZED INSPIRATION
 st.subheader("💡 Inspiration")
-# Default inspirations
 suggestions = [("🧬 Quantum Bio", "Quantum Biology basics"), ("🏛️ History", "Bronze Age collapse"), ("🌌 Space", "Black holes")]
-
-# If user has specific interests, swap top suggestion
 top_interest = st.session_state.interests.most_common(1)
 if top_interest:
     interest_word = top_interest[0][0].capitalize()
@@ -119,7 +142,7 @@ with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
     else:
-        st.write("Upload a file for document-specific insights. Otherwise, use the chat for any topic!")
+        st.write("Insights will appear here after analyzing a document.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
@@ -131,7 +154,7 @@ with tab_chat:
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
-    query = st.chat_input("Ask anything (with or without a file)...")
+    query = st.chat_input("Ask any research question...")
     
     if "active_prompt" in st.session_state:
         query = st.session_state.active_prompt
@@ -147,12 +170,8 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                
-                # REVISED LOGIC: Universal Answering
-                if st.session_state.summary:
-                    context_prompt = f"Context: {st.session_state.summary}\n\nUser Question: {query}"
-                else:
-                    context_prompt = query # Standard AI answering
+                # Universal answering logic
+                context_prompt = f"Context: {st.session_state.summary}\n\nUser Question: {query}" if st.session_state.summary else query
                 
                 stream = model.generate_content(context_prompt, stream=True)
                 for chunk in stream:
@@ -163,7 +182,7 @@ with tab_chat:
                 st.rerun()
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Rate Limit Hit! Recharging for 60s...")
+                    st.error("🚨 Limit Hit! Recharging for 60s...")
                     wait_bar = st.progress(0)
                     for p in range(60):
                         time.sleep(1)
@@ -171,7 +190,7 @@ with tab_chat:
                     st.success("Recharged! Try again.")
                 else:
                     st.error(f"Error: {e}")
-   
+
 
 
 
