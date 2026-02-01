@@ -13,9 +13,14 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. CUSTOM CSS (Splash Screen & Styling) ---
+# --- 2. ADVANCED UI OVERRIDE (Hiding Streamlit Branding) ---
 st.markdown("""
     <style>
+    /* Hide Streamlit Header and Footer */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+    
     /* Splash Screen Animation */
     #splash-screen {
         position: fixed;
@@ -23,7 +28,7 @@ st.markdown("""
         background-color: #0E1117;
         display: flex; flex-direction: column;
         justify-content: center; align-items: center;
-        z-index: 9999;
+        z-index: 999999;
         animation: fadeout 3s forwards;
     }
     @keyframes fadeout {
@@ -33,6 +38,9 @@ st.markdown("""
     }
     .splash-logo { font-size: 80px; margin-bottom: 20px; }
     .splash-text { color: white; font-family: sans-serif; font-size: 24px; font-weight: bold; }
+    
+    /* Custom Sidebar adjustments */
+    .css-1d391kg { padding-top: 1rem; }
     </style>
     
     <div id="splash-screen">
@@ -89,8 +97,8 @@ def update_interests(text):
 
 # --- 6. SIDEBAR TOOLS ---
 with st.sidebar:
-    st.title("🎓 Scholar Tools")
-    st.caption(f"Connected to: {st.session_state.model_name}")
+    st.markdown("## 🎓 Scholar AI")
+    st.caption(f"System: v2.0 (Active)")
     
     uploaded_file = st.file_uploader("Upload Material (Optional)", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="main_upload")
     
@@ -116,15 +124,15 @@ with st.sidebar:
     if st.session_state.history:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
-        if st.button("🗑️ Clear & Reset Quota", use_container_width=True):
+        if st.button("🗑️ Clear Lab", use_container_width=True):
             st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""; st.session_state.interests = collections.Counter()
             st.rerun()
 
-# --- 7. MAIN CHAT INTERFACE ---
+# --- 7. MAIN INTERFACE ---
 st.title("🎓 Scholar Pro Lab")
 
 # DYNAMIC PERSONALIZED INSPIRATION
-st.subheader("💡 Inspiration")
+st.subheader("💡 Research Inspiration")
 suggestions = [("🧬 Quantum Bio", "Quantum Biology basics"), ("🏛️ History", "Bronze Age collapse"), ("🌌 Space", "Black holes")]
 top_interest = st.session_state.interests.most_common(1)
 if top_interest:
@@ -142,7 +150,7 @@ with tab_insights:
     if st.session_state.summary:
         st.info(st.session_state.summary)
     else:
-        st.write("Insights will appear here after analyzing a document.")
+        st.write("Upload a file to unlock research insights.")
 
 with tab_chat:
     for i, msg in enumerate(st.session_state.history):
@@ -154,7 +162,7 @@ with tab_chat:
                     gTTS(text=msg["content"], lang='en').write_to_fp(fp)
                     st.audio(fp, format='audio/mp3', autoplay=True)
 
-    query = st.chat_input("Ask any research question...")
+    query = st.chat_input("Ask a research question...")
     
     if "active_prompt" in st.session_state:
         query = st.session_state.active_prompt
@@ -170,7 +178,6 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                # Universal answering logic
                 context_prompt = f"Context: {st.session_state.summary}\n\nUser Question: {query}" if st.session_state.summary else query
                 
                 stream = model.generate_content(context_prompt, stream=True)
@@ -182,14 +189,14 @@ with tab_chat:
                 st.rerun()
             except Exception as e:
                 if "429" in str(e):
-                    st.error("🚨 Limit Hit! Recharging for 60s...")
+                    st.error("🚨 Recharge: Token bucket empty. Please wait 60s.")
                     wait_bar = st.progress(0)
                     for p in range(60):
                         time.sleep(1)
                         wait_bar.progress((p+1)/60)
-                    st.success("Recharged! Try again.")
                 else:
                     st.error(f"Error: {e}")
+
 
 
 
