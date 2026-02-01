@@ -16,12 +16,10 @@ st.set_page_config(
 # --- 2. ADVANCED UI OVERRIDE (Hiding Streamlit Branding) ---
 st.markdown("""
     <style>
-    /* Hide Streamlit Header and Footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
     
-    /* Splash Screen Animation */
     #splash-screen {
         position: fixed;
         top: 0; left: 0; width: 100%; height: 100%;
@@ -38,9 +36,6 @@ st.markdown("""
     }
     .splash-logo { font-size: 80px; margin-bottom: 20px; }
     .splash-text { color: white; font-family: sans-serif; font-size: 24px; font-weight: bold; }
-    
-    /* Custom Sidebar adjustments */
-    .css-1d391kg { padding-top: 1rem; }
     </style>
     
     <div id="splash-screen">
@@ -98,21 +93,29 @@ def update_interests(text):
 # --- 6. SIDEBAR TOOLS ---
 with st.sidebar:
     st.markdown("## 🎓 Scholar AI")
-    st.caption(f"System: v2.0 (Active)")
+    st.caption(f"System: v2.1 (Active)")
     
     uploaded_file = st.file_uploader("Upload Material (Optional)", type=['pdf', 'mp4', 'png', 'jpg', 'jpeg'], key="main_upload")
     
     if uploaded_file and not st.session_state.summary:
-        if st.button("✨ Analyze & Generate FAQs"):
-            with st.spinner("Analyzing..."):
+        if st.button("✨ Analyze with Citations"):
+            with st.spinner("Analyzing with source tracking..."):
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    res = model.generate_content([blob, "Summarize in 2 paragraphs and provide 3 research FAQs."])
+                    
+                    # MODIFICATION: Forced Citation Prompt
+                    analysis_prompt = (
+                        "Summarize this file in 2 paragraphs and provide 3 research FAQs. "
+                        "CRITICAL: Whenever you mention a specific fact, cite the page number for PDFs "
+                        "or timestamp for videos in brackets like [Page X] or [Timestamp X]."
+                    )
+                    
+                    res = model.generate_content([blob, analysis_prompt])
                     st.session_state.summary = res.text
                     st.rerun()
                 except Exception as e:
-                    st.error("Rate limit hit. Wait 60s.")
+                    st.error(f"Error: {e}")
 
     st.divider()
     st.header("⏱️ Focus Timer")
@@ -148,6 +151,7 @@ tab_chat, tab_insights = st.tabs(["💬 Chat", "📄 Insights & FAQs"])
 
 with tab_insights:
     if st.session_state.summary:
+        st.markdown("### Source Analysis")
         st.info(st.session_state.summary)
     else:
         st.write("Upload a file to unlock research insights.")
@@ -178,7 +182,18 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                context_prompt = f"Context: {st.session_state.summary}\n\nUser Question: {query}" if st.session_state.summary else query
+                
+                # MODIFICATION: Context-Aware Citation Prompt
+                if st.session_state.summary:
+                    context_prompt = (
+                        f"Context: {st.session_state.summary}\n\n"
+                        f"User Question: {query}\n\n"
+                        "Instruction: Use the context to answer. If the context contains page numbers or timestamps, "
+                        "include them in your answer (e.g., [Page X]). If the information is not in the context, "
+                        "answer based on general knowledge but state that it is not in the provided source."
+                    )
+                else:
+                    context_prompt = query
                 
                 stream = model.generate_content(context_prompt, stream=True)
                 for chunk in stream:
@@ -196,6 +211,7 @@ with tab_chat:
                         wait_bar.progress((p+1)/60)
                 else:
                     st.error(f"Error: {e}")
+
 
 
 
