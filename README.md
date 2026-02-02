@@ -35,4 +35,4 @@ Academic Export: The "Research Memo" feature generates a clean, Latin-1 encoded 
 Scholar AI Pro isn't just a wrapper; it’s a prototype for a new kind of educational infrastructure. My roadmap includes Vector RAG for multi-book libraries and BibTeX automation to eliminate the manual labor of citations forever.
 
 A Message to the Judges
-In a field of 27,382 registrations, I didn't want to build the biggest app; I wanted to build the smartest one. Scholar AI Pro is proof that with clever state management and a "human-first" approach to AI, we can build tools that don't just replace research—they empower it.
+In a field of 27,000+ registrations, I didn't want to build the biggest app; I wanted to build the smartest one. Scholar AI Pro is proof that with clever state management and a "human-first" approach to AI, we can build tools that don't just replace research—they empower it.
