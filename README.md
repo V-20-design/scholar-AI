@@ -1,7 +1,7 @@
 🎓 Scholar AI Pro: The Future of Verified Research
 Submission for the Global AI Hackathon 2026
 
-The "Pitch"
+📝 The "Pitch"
 We are currently drowning in information but starving for truth. Most AI tools today are "black boxes"—they give you an answer, but they can’t prove where they got it. For a student or a researcher, a hallucinated fact is worse than no fact at all.
 
 Scholar AI Pro is a research laboratory designed to restore trust. By combining Gemini’s native multimodality with a custom Source-Mapping Engine, I’ve built a tool that doesn't just summarize; it verifies.
@@ -35,4 +35,4 @@ Academic Export: The "Research Memo" feature generates a clean, Latin-1 encoded 
 Scholar AI Pro isn't just a wrapper; it’s a prototype for a new kind of educational infrastructure. My roadmap includes Vector RAG for multi-book libraries and BibTeX automation to eliminate the manual labor of citations forever.
 
 A Message to the Judges
-In a field of 27,000+ registrations, I didn't want to build the biggest app; I wanted to build the smartest one. Scholar AI Pro is proof that with clever state management and a "human-first" approach to AI, we can build tools that don't just replace research—they empower it.
+In a field of 27,382 registrations, I didn't want to build the biggest app; I wanted to build the smartest one. Scholar AI Pro is proof that with clever state management and a "human-first" approach to AI, we can build tools that don't just replace research—they empower it.
