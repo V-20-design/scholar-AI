@@ -1,5 +1,6 @@
 🎓 Scholar AI Pro: The Future of Verified Research
 Submission for the Global AI Hackathon 2026
+<img width="941" height="404" alt="Screenshot 1" src="https://github.com/user-attachments/assets/c5212bff-c05e-4b90-9b48-ef91b20ffd02" />
 
 📝 The "Pitch"
 We are currently drowning in information but starving for truth. Most AI tools today are "black boxes"—they give you an answer, but they can’t prove where they got it. For a student or a researcher, a hallucinated fact is worse than no fact at all.
@@ -16,6 +17,7 @@ The Result: 90% reduction in token costs and near-instant response times, allowi
 
 2. Native Multimodality & The Citation Engine
 I leveraged Gemini’s ability to "see" and "read" simultaneously. My Citation Engine forces the model to provide structured metadata for every claim.
+<img width="1784" height="795" alt="Screenshot 2026-02-04 101324" src="https://github.com/user-attachments/assets/624e24d1-b466-469e-9005-32fe0f1d2ccc" />
 
 PDFs: Cited by [Page X]
 
@@ -31,8 +33,13 @@ The "Graceful Recharge": I transformed the frustration of API limits into a poli
 
 Academic Export: The "Research Memo" feature generates a clean, Latin-1 encoded PDF, allowing users to take their findings from the lab to the classroom instantly.
 
+
+https://github.com/user-attachments/assets/2dc8bb2a-7e8f-4e06-ae88-d724777c3216
+
+
 🔮 Impact & Future Vision
 Scholar AI Pro isn't just a wrapper; it’s a prototype for a new kind of educational infrastructure. My roadmap includes Vector RAG for multi-book libraries and BibTeX automation to eliminate the manual labor of citations forever.
 
 A Message to the Judges
 In a field of 27,000+ registrations, I didn't want to build the biggest app; I wanted to build the smartest one. Scholar AI Pro is proof that with clever state management and a "human-first" approach to AI, we can build tools that don't just replace research—they empower it.
+[SCHOLAR AI PRO.pptx](https://github.com/user-attachments/files/25067720/SCHOLAR.AI.PRO.pptx)
