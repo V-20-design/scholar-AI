@@ -37,8 +37,10 @@ The "Graceful Recharge": I transformed the frustration of API limits into a poli
 
 Academic Export: The "Research Memo" feature generates a clean, Latin-1 encoded PDF, allowing users to take their findings from the lab to the classroom instantly.
 
+<img width="944" height="437" alt="Screenshot 3" src="https://github.com/user-attachments/assets/eb9912de-d27f-4dfe-bac3-6514abb56a3a" />
 
-https://github.com/user-attachments/assets/2dc8bb2a-7e8f-4e06-ae88-d724777c3216
+<img width="1784" height="795" alt="Screenshot 2026-02-04 101324" src="https://github.com/user-attachments/assets/e4a6f932-8e56-47a9-b779-9a928c9e7644" />
+
 
 
 🔮 Impact & Future Vision
