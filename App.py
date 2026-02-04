@@ -104,7 +104,6 @@ with st.sidebar:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
                     
-                    # MODIFICATION: Forced Citation Prompt
                     analysis_prompt = (
                         "Summarize this file in 2 paragraphs and provide 3 research FAQs. "
                         "CRITICAL: Whenever you mention a specific fact, cite the page number for PDFs "
@@ -162,9 +161,15 @@ with tab_chat:
             st.write(msg["content"])
             if msg["role"] == "assistant":
                 if st.button("🔊 Read Aloud", key=f"v_{i}"):
-                    fp = io.BytesIO()
-                    gTTS(text=msg["content"], lang='en').write_to_fp(fp)
-                    st.audio(fp, format='audio/mp3', autoplay=True)
+                    try:
+                        # ERROR FIX: Try-except block and character limit to prevent gTTSError
+                        audio_text = msg["content"][:1000]
+                        fp = io.BytesIO()
+                        tts = gTTS(text=audio_text, lang='en')
+                        tts.write_to_fp(fp)
+                        st.audio(fp, format='audio/mp3', autoplay=True)
+                    except Exception:
+                        st.warning("⚠️ Voice service temporarily unavailable. Please try a shorter snippet.")
 
     query = st.chat_input("Ask a research question...")
     
@@ -183,14 +188,13 @@ with tab_chat:
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
                 
-                # MODIFICATION: Context-Aware Citation Prompt
                 if st.session_state.summary:
                     context_prompt = (
                         f"Context: {st.session_state.summary}\n\n"
                         f"User Question: {query}\n\n"
-                        "Instruction: Use the context to answer. If the context contains page numbers or timestamps, "
-                        "include them in your answer (e.g., [Page X]). If the information is not in the context, "
-                        "answer based on general knowledge but state that it is not in the provided source."
+                        f"Instruction: Use the context to answer. If the context contains page numbers or timestamps, "
+                        f"include them in your answer (e.g., [Page X]). If the information is not in the context, "
+                        f"answer based on general knowledge but state that it is not in the provided source."
                     )
                 else:
                     context_prompt = query
@@ -211,6 +215,7 @@ with tab_chat:
                         wait_bar.progress((p+1)/60)
                 else:
                     st.error(f"Error: {e}")
+
 
 
 
