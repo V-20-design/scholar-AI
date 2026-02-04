@@ -62,9 +62,9 @@ def init_scholar():
 # --- 4. SESSION INITIALIZATION ---
 if "history" not in st.session_state: st.session_state.history = []
 if "summary" not in st.session_state: st.session_state.summary = ""
-if "faqs" not in st.session_state: st.session_state.faqs = ""
 if "model_name" not in st.session_state: st.session_state.model_name = init_scholar()
 if "interests" not in st.session_state: st.session_state.interests = collections.Counter()
+if "audio_cache" not in st.session_state: st.session_state.audio_cache = {}
 
 # --- 5. UTILITIES ---
 def create_pdf(history):
@@ -103,13 +103,10 @@ with st.sidebar:
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     blob = {"mime_type": uploaded_file.type, "data": uploaded_file.getvalue()}
-                    
                     analysis_prompt = (
                         "Summarize this file in 2 paragraphs and provide 3 research FAQs. "
-                        "CRITICAL: Whenever you mention a specific fact, cite the page number for PDFs "
-                        "or timestamp for videos in brackets like [Page X] or [Timestamp X]."
+                        "Cite the page number for PDFs or timestamp for videos in brackets like [Page X]."
                     )
-                    
                     res = model.generate_content([blob, analysis_prompt])
                     st.session_state.summary = res.text
                     st.rerun()
@@ -127,7 +124,7 @@ with st.sidebar:
         pdf_data = create_pdf(st.session_state.history)
         st.download_button("📥 Save Memo", data=pdf_data, file_name="memo.pdf", use_container_width=True)
         if st.button("🗑️ Clear Lab", use_container_width=True):
-            st.session_state.history = []; st.session_state.summary = ""; st.session_state.faqs = ""; st.session_state.interests = collections.Counter()
+            st.session_state.history = []; st.session_state.summary = ""; st.session_state.audio_cache = {}
             st.rerun()
 
 # --- 7. MAIN INTERFACE ---
@@ -161,15 +158,19 @@ with tab_chat:
             st.write(msg["content"])
             if msg["role"] == "assistant":
                 if st.button("🔊 Read Aloud", key=f"v_{i}"):
-                    try:
-                        # ERROR FIX: Try-except block and character limit to prevent gTTSError
-                        audio_text = msg["content"][:1000]
-                        fp = io.BytesIO()
-                        tts = gTTS(text=audio_text, lang='en')
-                        tts.write_to_fp(fp)
-                        st.audio(fp, format='audio/mp3', autoplay=True)
-                    except Exception:
-                        st.warning("⚠️ Voice service temporarily unavailable. Please try a shorter snippet.")
+                    if i in st.session_state.audio_cache:
+                        st.audio(st.session_state.audio_cache[i], format='audio/mp3', autoplay=True)
+                    else:
+                        try:
+                            # MODIFICATION: Smart Text Chunking (Only takes first 500 chars for safety)
+                            audio_text = msg["content"][:500].rsplit('.', 1)[0] + "."
+                            fp = io.BytesIO()
+                            tts = gTTS(text=audio_text, lang='en', slow=False)
+                            tts.write_to_fp(fp)
+                            st.session_state.audio_cache[i] = fp.getvalue()
+                            st.audio(st.session_state.audio_cache[i], format='audio/mp3', autoplay=True)
+                        except Exception:
+                            st.warning("⚠️ Voice service busy. Google is limiting requests. Try again in 60s.")
 
     query = st.chat_input("Ask a research question...")
     
@@ -187,18 +188,7 @@ with tab_chat:
             full_text = ""
             try:
                 model = genai.GenerativeModel(st.session_state.model_name)
-                
-                if st.session_state.summary:
-                    context_prompt = (
-                        f"Context: {st.session_state.summary}\n\n"
-                        f"User Question: {query}\n\n"
-                        f"Instruction: Use the context to answer. If the context contains page numbers or timestamps, "
-                        f"include them in your answer (e.g., [Page X]). If the information is not in the context, "
-                        f"answer based on general knowledge but state that it is not in the provided source."
-                    )
-                else:
-                    context_prompt = query
-                
+                context_prompt = f"Context: {st.session_state.summary}\n\nQuestion: {query}" if st.session_state.summary else query
                 stream = model.generate_content(context_prompt, stream=True)
                 for chunk in stream:
                     full_text += chunk.text
@@ -215,6 +205,7 @@ with tab_chat:
                         wait_bar.progress((p+1)/60)
                 else:
                     st.error(f"Error: {e}")
+
 
 
 
