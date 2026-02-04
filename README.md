@@ -29,6 +29,10 @@ To ensure the app never goes down during a judge's demo, I implemented Dynamic M
 🎨 User-Centric Design
 Behavioral Heuristics: The app uses collections.Counter to learn your research habits. If you study "Quantum Physics," the home screen's "Inspiration" buttons evolve to suggest advanced Physics topics.
 
+
+https://github.com/user-attachments/assets/250fd79f-5594-46c4-a4ad-2850b5b82f05
+
+
 The "Graceful Recharge": I transformed the frustration of API limits into a polished UX. Instead of an error, users get a 60-second "System Recharge" bar, maintaining the professional "Scholar" atmosphere even under heavy load.
 
 Academic Export: The "Research Memo" feature generates a clean, Latin-1 encoded PDF, allowing users to take their findings from the lab to the classroom instantly.
