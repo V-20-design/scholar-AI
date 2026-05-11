@@ -1,3 +1,4 @@
+
 import streamlit as st
 import google.generativeai as genai
 from fpdf import FPDF
@@ -14,10 +15,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# --- 2. NEW GLASSMORPHISM UI OVERRIDE ---
+# --- 2. GLASSMORPHISM UI OVERRIDE ---
 st.markdown("""
     <style>
-    /* Professional Background & Blur */
     .stApp {
         background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%);
     }
@@ -29,7 +29,6 @@ st.markdown("""
         padding: 15px;
         margin-bottom: 10px;
     }
-    /* Glowing Blue Buttons */
     .stButton>button {
         border-radius: 20px;
         background: linear-gradient(90deg, #4F8BFF, #3B82F6);
@@ -42,7 +41,6 @@ st.markdown("""
         transform: translateY(-2px);
         box-shadow: 0px 5px 15px rgba(59, 130, 246, 0.5);
     }
-    /* Hide Streamlit Headers */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     header {visibility: hidden;}
@@ -71,7 +69,7 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- 3. DYNAMIC MODEL DISCOVERY (Upgraded) ---
+# --- 3. DYNAMIC MODEL DISCOVERY ---
 def init_scholar():
     api_key = st.secrets.get("GOOGLE_API_KEY")
     if not api_key:
@@ -80,7 +78,6 @@ def init_scholar():
     genai.configure(api_key=api_key)
     try:
         models = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-        # Priority check for stable 2026 models
         for target in ["models/gemini-2.0-flash", "models/gemini-1.5-flash-latest", "models/gemini-1.5-flash"]:
             if target in models: return target
         return models[0] if models else "models/gemini-1.5-flash"
@@ -118,18 +115,10 @@ def update_interests(text):
         if word in text.lower():
             st.session_state.interests[word] += 1
 
-def web_search(query):
-    try:
-        with DDGS() as ddgs:
-            results = [r['body'] for r in ddgs.text(query, max_results=3)]
-            return "\n".join(results)
-    except:
-        return ""
-
 # --- 6. SIDEBAR TOOLS ---
 with st.sidebar:
     st.markdown("## 🎓 Scholar Elite")
-    st.caption(f"System: v3.0 (Active)")
+    st.caption(f"System: v3.1 (Active)")
     
     st.subheader("🎙️ Voice Persona")
     voice_choice = st.selectbox("Select Tutor", ["Global (Neutral)", "Arthur (UK)", "Grace (AUS)"])
@@ -139,7 +128,7 @@ with st.sidebar:
     
     if uploaded_file and not st.session_state.summary:
         if st.button("✨ Analyze with Citations"):
-            with st.spinner("Analyzing with source tracking..."):
+            with st.spinner("Analyzing content..."):
                 try:
                     model = genai.GenerativeModel(st.session_state.model_name)
                     file_bytes = uploaded_file.getvalue()
@@ -154,7 +143,10 @@ with st.sidebar:
                     st.session_state.summary = res.text
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error: {e}")
+                    if "429" in str(e):
+                        st.error("⏳ Quota Full: The AI is resting. Please wait 30 seconds.")
+                    else:
+                        st.error(f"Error: {e}")
 
     st.divider()
     if st.session_state.history:
@@ -244,8 +236,16 @@ with tab_chat:
                 st.session_state.history.append({"role": "assistant", "content": full_text})
                 st.rerun()
             except Exception as e:
-                st.error(f"Error: {e}")
-
+                # 429 HANDLING (Line 175-185)
+                if "429" in str(e):
+                    st.warning("🚨 Lab Overloaded: Cooling down for 20 seconds...")
+                    progress_bar = st.progress(0)
+                    for percent_complete in range(100):
+                        time.sleep(0.2) # Approx 20 seconds total
+                        progress_bar.progress(percent_complete + 1)
+                    st.info("System ready. Please click 'Enter' to resubmit.")
+                else:
+                    st.error(f"Error: {e}")
 
 
 
